@@ -16,4 +16,3 @@ verilator -Wall --cc \
   --build \
   --top-module Ate \
   -CFLAGS "-std=c++20 -I$CPP_INC -fPIC" 
-
