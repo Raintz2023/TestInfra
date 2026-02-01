@@ -1,0 +1,64 @@
+# ===== Build outputs =====
+build/
+out/
+dist/
+obj/
+obj_dir/
+*.o
+*.obj
+*.a
+*.so
+*.dll
+*.dylib
+*.exe
+*.out
+
+# ===== Verilator / Simulation =====
+obj_dir/
+*.vcd
+*.vpd
+*.fst
+*.wlf
+*.fsdb
+*.lxt
+*.lxt2
+*.ghw
+*.dump
+*.log
+
+# ===== Wave / captured data / large artifacts =====
+wave/
+waves/
+*.wave
+*.raw
+*.bin
+*.dat
+
+# ===== Python =====
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ===== CMake / Ninja =====
+CMakeFiles/
+CMakeLists.txt
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+build.ninja
+.ninja_deps
+.ninja_log
+
+# ===== IDE / OS =====
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ===== Config =====
+!Config/
+!Config/**
