@@ -17,3 +17,9 @@ alias stubgen="python3.13 -m pybind11_stubgen ate -o /root/Code/TestInfra/Python
 function wave
     gtkwave "$VERILOG/wave/wave_$argv[1].vcd"
 end
+
+if status is-interactive
+    alias ls='eza --icons'
+    alias ll='eza -l --icons --git'
+    alias la='eza -a --icons'
+end
