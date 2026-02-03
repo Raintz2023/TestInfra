@@ -31,6 +31,8 @@ public:
 
     void mr_write(uint64_t addr, uint64_t mr_data);
 
+    void mr_read(uint64_t addr);
+
     void write(uint64_t addr);
 
     void read(uint64_t addr);
@@ -62,6 +64,7 @@ private:
     uint64_t clock_ = 0;
     uint8_t top_data_ = 0xFF;
 
+public:
     uint32_t sample_cnts_ = 0;
     std::vector<uint8_t> top_data_vec_;
 };

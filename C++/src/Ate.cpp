@@ -1,6 +1,6 @@
 #include "Ate.h"
 
-// RAII: 资源获取即初始化，谁获取并使用资源，谁就应该负责释放资源。
+// RAII: 资源获取即初始化，谁获取、使用资源，谁就应该初始化时获取资源，销毁时负责释放资源。
 // 不要将不安全对象对外暴露，以免外部将其释放。
 ATE::ATE(std::string wave_name, bool trace_enable, uint8_t top_data_init) 
     : contextp_(std::make_unique<VerilatedContext>()), clock_(0), top_data_(top_data_init) {
@@ -68,7 +68,19 @@ void ATE::mr_write(uint64_t addr, uint64_t mr_data) {
 
     this->atep_->ADDR = addr & 0xFF;
 
-    this->atep_->DQ_IN = mr_data;
+    this->atep_->MR_IN = mr_data;
+
+    this->tick();
+    
+    this->atep_->MRW = 0;
+    this->tick();
+}
+
+void ATE::mr_read(uint64_t addr) {
+    this->atep_->MRR = 1;
+    this->atep_->MRW = 0;
+
+    this->atep_->ADDR = addr & 0xFF;
 
     this->tick();
     
@@ -83,7 +95,7 @@ void ATE::write(uint64_t addr) {
 
     this->atep_->ADDR = addr & 0xFF;
 
-    this->atep_->DQ_IN = this->top_data_;
+    // this->atep_->DQ_IN = this->top_data_;
 
     // 跑一个周期：posedge 时写入
     this->tick();
@@ -111,12 +123,14 @@ void ATE::read(uint64_t addr) {
 void ATE::drive(unsigned int offset) {
 
     if (offset > 0) {
-        this->atep_->SHIFT = 1;
+        this->atep_->DRIV_SHIFT = 1;
         this->atep_->DRIV_FRONT = offset;
     }
     else {
-        this->atep_->SHIFT = 0;
+        this->atep_->DRIV_SHIFT = 0;
     }
+
+    this->atep_->DQ_IN = this->top_data_;
 
     this->atep_->DRIV = 1;
     this->tick();
@@ -132,11 +146,11 @@ void ATE::sample(int offset) {
     this->top_data_vec_.push_back(this->top_data_);
 
     if (offset > 0) {
-        this->atep_->SHIFT = 1;
+        this->atep_->STRB_SHIFT = 1;
         this->atep_->STRB_FRONT = abs(offset);
     }
     else {
-        this->atep_->SHIFT = 0;
+        this->atep_->STRB_SHIFT = 0;
         this->atep_->STRB_BACK = abs(offset);
     }
 
@@ -148,10 +162,17 @@ void ATE::sample(int offset) {
 }
 
 void ATE::compare() {
-    if (this->sample_cnts_ == this->atep_->SAMP_CNTS) {
+    uint32_t sample_cnts = this->sample_cnts_;
+    uint32_t strb_cnts = (uint32_t)this->atep_->STRB_CNTS;
+
+    // for (int i = 0; i < this->sample_cnts_; i++) {
+    //     std::cout << "Sample data:" << (uint32_t)this->atep_->OUT_REG[i] << std::endl;
+    //     std::cout << "Top data:" << (uint32_t)this->top_data_vec_[i] << std::endl;
+    // }
+    if (sample_cnts == strb_cnts) {
         bool pass = true;
         for (int i = 0; i < this->sample_cnts_; i++) {
-            if (this->top_data_vec_[i] != this->atep_->OUT_REG[i]) {
+            if ((uint32_t)this->top_data_vec_[i] != (uint32_t)this->atep_->OUT_REG[i]) {
                 pass = false;
                 break;
             }

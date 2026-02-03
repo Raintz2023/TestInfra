@@ -9,12 +9,12 @@ module Sampler (
     input  wire       DQ_OUT_VALID,
 
     input  wire       STRB,       // 1-cycle pulse
-    input  wire       SHIFT,     // 0: left 1: right
+    input  wire       STRB_SHIFT,     // 0: left 1: right
     input  wire [4:0] STRB_BACK,  // - 0..31
     input  wire [4:0] STRB_FRONT,  // + 0..31
 
-    output reg  [7:0] SAMP_DATA,
-    output reg        SAMP_VALID
+    output reg  [7:0] STRB_DATA,
+    output reg        STRB_VALID // Only be valid if DQ out is valid
 );
 
     reg [7:0] hist_data [0:31];
@@ -30,8 +30,8 @@ module Sampler (
     always @(posedge CLK or negedge RST_N) begin
         if (!RST_N) begin
             now_ptr     <= 5'd0;
-            SAMP_DATA  <= 8'd0;
-            SAMP_VALID <= 1'b0;
+            STRB_DATA  <= 8'd0;
+            STRB_VALID <= 1'b0;
             for (i=0; i<32; i=i+1) begin
                 hist_data[i] <= 8'd0;
                 hist_data_valid[i]   <= 1'b0;
@@ -42,7 +42,7 @@ module Sampler (
             end
 
         end else begin
-            SAMP_VALID <= 1'b0;
+            STRB_VALID <= 1'b0;
 
             // 每拍记录一次DQ输出状态，环形缓冲
             hist_data[now_ptr] <= DQ_OUT;
@@ -50,13 +50,13 @@ module Sampler (
             now_ptr <= now_ptr + 5'd1;
 
             // STRB触发历史采样
-            if (STRB && !SHIFT) begin
+            if (STRB && !STRB_SHIFT) begin
                 if (STRB_BACK == 5'd0) begin   // 当前拍直接输出，不可用pre_ptr，因为当前拍还未存储
-                    SAMP_DATA  <= DQ_OUT;
-                    SAMP_VALID <= DQ_OUT_VALID;
+                    STRB_DATA  <= DQ_OUT;
+                    STRB_VALID <= DQ_OUT_VALID;
                 end else begin
-                    SAMP_DATA  <= hist_data[pre_ptr]; // 之前的拍已经存储，用pre_ptr
-                    SAMP_VALID <= hist_data_valid[pre_ptr];
+                    STRB_DATA  <= hist_data[pre_ptr]; // 之前的拍已经存储，用pre_ptr
+                    STRB_VALID <= hist_data_valid[pre_ptr];
                 end
             end
 
@@ -67,18 +67,18 @@ module Sampler (
             fut_oe[0] <= 1'b0;
 
             // STRB触发未来采样
-            if (STRB && SHIFT) begin
+            if (STRB && STRB_SHIFT) begin
                 if (STRB_FRONT == 5'd0) begin   // 当前拍直接输出
-                    SAMP_DATA  <= DQ_OUT;
-                    SAMP_VALID <= DQ_OUT_VALID;
+                    STRB_DATA  <= DQ_OUT;
+                    STRB_VALID <= DQ_OUT_VALID;
                 end else begin
                     fut_oe[0] <= STRB;  
                 end
             end
             // 在STRB_FRONT级输出
-            if (SHIFT && (STRB_FRONT != 5'd0) && fut_oe[STRB_FRONT-1]) begin   // 切记是k-1，非阻塞赋值存在一个延迟
-                SAMP_DATA <= DQ_OUT;
-                SAMP_VALID <= DQ_OUT_VALID; 
+            if (STRB_SHIFT && (STRB_FRONT != 5'd0) && fut_oe[STRB_FRONT - 1]) begin   // 切记是k-1，非阻塞赋值存在一个延迟
+                STRB_DATA <= DQ_OUT;
+                STRB_VALID <= DQ_OUT_VALID; 
             end
 
         end
