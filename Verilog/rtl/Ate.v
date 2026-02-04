@@ -11,10 +11,10 @@ module Ate (
     input  wire [7:0] MR_IN,
 
     // ATE -> Sampler
-    input  wire       STRB,         // 1-cycle strobe pulse
+    input  wire       STRB,
     input  wire       STRB_SHIFT,
-    input  wire [4:0] STRB_BACK,    // 0..31, 采过去N拍（0=当前拍）
-    input  wire [4:0] STRB_FRONT,    // 0..31, 采未来N拍（0=当前拍）
+    input  wire [4:0] STRB_BACK, 
+    input  wire [4:0] STRB_FRONT,
 
     // ATE -> Driver
     input  wire [7:0] DQ_IN,
@@ -22,7 +22,7 @@ module Ate (
     input  wire       DRIV_SHIFT,
     input  wire [4:0] DRIV_FRONT,
 
-    // DRAM -> 外部
+    // DRAM -> Exterior
     output wire       DQ_IE,
     output wire [7:0] DQ_OUT,
     output wire       DQ_OE,
@@ -33,11 +33,11 @@ module Ate (
     output wire [7:0] STRB_DATA,
     output wire       STRB_VALID,
 
-    // Driver -> 外部/DRAM
+    // Driver -> Exterior/DRAM
     output wire       DRIV_VALID,
     output wire [7:0] DQ_IN_DELAY,
 
-    // Sampler -> Out_Register
+    // Sampler -> Exterior/Out_Register
     output reg  [4:0] STRB_CNTS,
     output reg  [7:0] OUT_REG [0:31]
 
@@ -92,6 +92,9 @@ module Ate (
         .OUT_REG(OUT_REG)
     );    
 
+    // =========================
+    // Driver (DEPTH=+32, fixed)
+    // =========================
     Driver u_driv(
         .CLK       (CLK),
         .RST_N     (RST_N),

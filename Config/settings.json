@@ -1,0 +1,403 @@
+{    "python.analysis.extraPaths": [
+            "/root/Code/TestInfra/Python/libs",
+            "/root/Code/TestInfra/Python/stubs"
+        ],
+
+    "workbench.colorTheme": "One Dark Pro Italic Vivid",
+    "editor.fontFamily": "'ComicCode Nerd Font', '悠哉字体 Medium', monospace",
+    "workbench.iconTheme": "material-icon-theme",
+    "editor.matchBrackets": "never",
+    "git.autofetch": true,
+    "security.workspace.trust.enabled": false,
+    "workbench.colorCustomizations":{
+
+        "statusBar.background": "#2f333d",
+        "editorCursor.foreground": "#ffc600",
+        "terminalCursor.foreground": "#ffc600",
+        "statusBar.debuggingBackground": "#005f5f",
+        "statusBar.noFolderBackground": "#005f5f",
+        "statussBar.prominentBackground": "#7C21D7",
+        "statusBar.foreground": "#e9e6e6",
+        "statusBar.debuggingForeground": "#e9e6e6",
+        "editor.lineHighlightBackground": "#00000000",
+        "editor.lineHighlightBorder": "#00000000",
+        
+    },
+
+    "editor.tokenColorCustomizations": {
+
+        "comments": "#007777",
+
+        "textMateRules": [
+            {
+                "scope": "variable.parameter.function.language.special.self.python",
+                "settings": {
+                    "foreground": "#e06c75"
+                }
+                
+            },
+            {
+                "scope": ["variable", "variable.other"],
+                "settings": {
+                    "foreground": "#a6b2c0"
+                }
+            }
+        ]
+        
+    },
+
+"editor.unicodeHighlight.includeStrings": false,
+"apc.imports": [
+    "file:///c:/Users/seagull/.vscode/extensions/brandonkirbyson.vscode-animations-2.0.3/dist/updateHandler.js"
+],
+"[python]": {
+    "editor.defaultFormatter": "ms-python.autopep8",
+    "editor.formatOnSave": true,
+},
+
+"python.languageServer": "Pylance",
+"cmake.pinnedCommands": [
+    "workbench.action.tasks.configureTaskRunner",
+    "workbench.action.tasks.runTask"
+],
+"remote.SSH.remotePlatform": {
+    "192.168.0.192": "linux",
+    "192.168.5.11": "linux",
+    "192.168.5.5": "linux"
+},
+"search.followSymlinks": false,
+"files.autoSave": "afterDelay",
+"animations.CursorAnimationOptions": {
+    "Color": "#ffc600",
+    "TrailLength": 8
+},
+"workbench.productIconTheme": "material-product-icons",
+"files.associations": {
+    "*.txt": "txt",
+    "*.ino": "arduino-output"
+},
+"workbench.editorAssociations": {
+    "*.txt": "default"
+},
+"typescript.disableAutomaticTypeAcquisition": true,
+"explorer.confirmDelete": false,
+"animations.Install-Method": "Apc Customize UI++",
+"editor.cursorSmoothCaretAnimation": "on",
+"editor.fontSize": 16,
+"workbench.activityBar.location": "top",
+"jupyter.interactiveWindow.textEditor.executeSelection": true,
+"editor.semanticTokenColorCustomizations": {
+
+
+},
+"code-runner.executorMap": {
+    
+    "javascript": "node",
+    "java": "cd $dir && javac $fileName && java $fileNameWithoutExt",
+    "c": "cd $dir && gcc $fileName -o $fileNameWithoutExt && $dir$fileNameWithoutExt",
+    "zig": "zig run",
+    "cpp": "cd $dir && g++ $fileName -o $fileNameWithoutExt && $dir$fileNameWithoutExt",
+    "objective-c": "cd $dir && gcc -framework Cocoa $fileName -o $fileNameWithoutExt && $dir$fileNameWithoutExt",
+    "php": "php",
+    "python": "python -u",
+    "perl": "perl",
+    "perl6": "perl6",
+    "ruby": "ruby",
+    "go": "go run",
+    "lua": "lua",
+    "groovy": "groovy",
+    "powershell": "powershell -ExecutionPolicy ByPass -File",
+    "bat": "cmd /c",
+    "shellscript": "bash",
+    "fsharp": "fsi",
+    "csharp": "scriptcs",
+    "vbscript": "cscript //Nologo",
+    "typescript": "ts-node",
+    "coffeescript": "coffee",
+    "scala": "scala",
+    "swift": "swift",
+    "julia": "julia",
+    "crystal": "crystal",
+    "ocaml": "ocaml",
+    "r": "Rscript",
+    "applescript": "osascript",
+    "clojure": "lein exec",
+    "haxe": "haxe --cwd $dirWithoutTrailingSlash --run $fileNameWithoutExt",
+    "rust": "cd $dir && rustc $fileName && $dir$fileNameWithoutExt",
+    "racket": "racket",
+    "scheme": "csi -script",
+    "ahk": "autohotkey",
+    "autoit": "autoit3",
+    "dart": "dart",
+    "pascal": "cd $dir && fpc $fileName && $dir$fileNameWithoutExt",
+    "d": "cd $dir && dmd $fileName && $dir$fileNameWithoutExt",
+    "haskell": "runghc",
+    "nim": "nim compile --verbosity:0 --hints:off --run",
+    "lisp": "sbcl --script",
+    "kit": "kitc --run",
+    "v": "v run",
+    "sass": "sass --style expanded",
+    "scss": "scss --style expanded",
+    "less": "cd $dir && lessc $fileName $fileNameWithoutExt.css",
+    "FortranFreeForm": "cd $dir && gfortran $fileName -o $fileNameWithoutExt && $dir$fileNameWithoutExt",
+    "fortran-modern": "cd $dir && gfortran $fileName -o $fileNameWithoutExt && $dir$fileNameWithoutExt",
+    "fortran_fixed-form": "cd $dir && gfortran $fileName -o $fileNameWithoutExt && $dir$fileNameWithoutExt",
+    "fortran": "cd $dir && gfortran $fileName -o $fileNameWithoutExt && $dir$fileNameWithoutExt",
+    "sml": "cd $dir && sml $fileName",
+    "mojo": "mojo run",
+    "erlang": "escript",
+    "spwn": "spwn build",
+    "pkl": "cd $dir && pkl eval -f yaml $fileName -o $fileNameWithoutExt.yaml",
+    "gleam": "gleam run -m $fileNameWithoutExt"
+},
+"editor.cursorBlinking": "smooth",
+"editor.stickyScroll.enabled": false,
+"animations.Scrolling": "Slide",
+"macros": {
+        "copyLine": [
+            // 先选中整行
+            "expandLineSelection",
+            // 复制选中内容
+            "editor.action.clipboardCopyAction",
+            // 取消选中
+            "cancelSelection"
+        ]
+    },
+"animations.Custom-CSS": false,
+"makefile.configureOnOpen": true,
+"terminal.integrated.tabs.location": "left",
+"workbench.panel.showLabels": false,
+"apc.buttons": [
+    
+],
+"debug.console.fontSize": 16,
+"scm.inputFontSize": 16,
+"editor.minimap.sectionHeaderFontSize": 12,
+
+"terminal.integrated.shellIntegration.enabled": false,
+"python.terminal.activateEnvironment": false,
+"git.terminalAuthentication": false,
+"cmake.enableAutomaticKitScan": false,
+
+
+"editor.suggest.showSnippets": true,
+"cmake.showNotAllDocumentsSavedQuestion": false,
+"editor.minimap.enabled": false,
+
+"terminal.integrated.defaultProfile.windows": "Windows PowerShell",
+"verilog.linting.linter": "modelsim",
+"verilog.ctags.path": "C:\\msys64\\mingw64\\bin",
+"verilog.formatting.iStyleVerilogFormatter.style": "GNU",
+"terminal.integrated.profiles.windows": {
+    "PowerShell": {
+        "source": "PowerShell",
+        "icon": "terminal-powershell"
+    },
+    "Command Prompt": {
+        "path": [
+            "${env:windir}\\Sysnative\\cmd.exe",
+            "${env:windir}\\System32\\cmd.exe"
+        ],
+        "args": [],
+        "icon": "terminal-cmd"
+    },
+    "Git Bash": {
+        "source": "Git Bash"
+    },
+    "MSYS2": {
+        "path": "C:\\msys64\\msys2_shell.cmd",
+        "args": [
+            "-defterm",
+            "-here",
+            "-no-start",
+            "-mingw64"
+        ]
+    },
+    "Windows PowerShell": {
+        "path": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+    }
+},
+"[verilog]": {
+    "editor.defaultFormatter": "teros-technology.teroshdl"
+},
+"workbench.startupEditor": "none",
+"window.zoomLevel": 0.75,
+"terminal.integrated.defaultProfile.linux": "fish",
+"bookmarks.gutterIconFillColor": "#c44b93",
+"bookmarks.gutterIconBorderColor": "#c44b93",
+
+"highlight.regexes": {
+    "((?:<!-- *)?(?:#|// @|//|./\\*+|<!--|--|\\* @|{!|{{!--|{{!) *TODO(?:\\s*\\([^)]+\\))?:?)((?!\\w)(?: *-->| *\\*/| *!}| *--}}| *}}|(?= *(?:[^:]//|/\\*+|<!--|@|--|{!|{{!--|{{!))|(?: +[^\\n@]*?)(?= *(?:[^:]//|/\\*+|<!--|@|--(?!>)|{!|{{!--|{{!))|(?: +[^@\\n]+)?))": {
+        "filterFileRegex": ".*(?<!CHANGELOG.md)$",
+        "decorations": [
+            {
+                "overviewRulerColor": "#ffcc00",
+                "backgroundColor": "#ffcc00",
+                "color": "#1f1f1f",
+                "fontWeight": "bold"
+            },
+            {
+                "backgroundColor": "#ffcc00",
+                "color": "#1f1f1f"
+            }
+        ]
+    },
+    "((?:<!-- *)?(?:#|// @|//|./\\*+|<!--|--|\\* @|{!|{{!--|{{!) *(?:FIXME|FIX|BUG|UGLY|DEBUG|HACK)(?:\\s*\\([^)]+\\))?:?)((?!\\w)(?: *-->| *\\*/| *!}| *--}}| *}}|(?= *(?:[^:]//|/\\*+|<!--|@|--|{!|{{!--|{{!))|(?: +[^\\n@]*?)(?= *(?:[^:]//|/\\*+|<!--|@|--(?!>)|{!|{{!--|{{!))|(?: +[^@\\n]+)?))": {
+        "filterFileRegex": ".*(?<!CHANGELOG.md)$",
+        "decorations": [
+            {
+                "overviewRulerColor": "#cc0000",
+                "backgroundColor": "#cc0000",
+                "color": "#1f1f1f",
+                "fontWeight": "bold"
+            },
+            {
+                "backgroundColor": "#cc0000",
+                "color": "#1f1f1f"
+            }
+        ]
+    },
+    "((?:<!-- *)?(?:#|// @|//|./\\*+|<!--|--|\\* @|{!|{{!--|{{!) *(?:REVIEW|OPTIMIZE|TSC)(?:\\s*\\([^)]+\\))?:?)((?!\\w)(?: *-->| *\\*/| *!}| *--}}| *}}|(?= *(?:[^:]//|/\\*+|<!--|@|--|{!|{{!--|{{!))|(?: +[^\\n@]*?)(?= *(?:[^:]//|/\\*+|<!--|@|--(?!>)|{!|{{!--|{{!))|(?: +[^@\\n]+)?))": {
+        "filterFileRegex": ".*(?<!CHANGELOG.md)$",
+        "decorations": [
+            {
+                "overviewRulerColor": "#00ccff",
+                "backgroundColor": "#00ccff",
+                "color": "#1f1f1f",
+                "fontWeight": "bold"
+            },
+            {
+                "backgroundColor": "#00ccff",
+                "color": "#1f1f1f"
+            }
+        ]
+    },
+    "((?:<!-- *)?(?:#|// @|//|./\\*+|<!--|--|\\* @|{!|{{!--|{{!) *(?:IDEA)(?:\\s*\\([^)]+\\))?:?)((?!\\w)(?: *-->| *\\*/| *!}| *--}}| *}}|(?= *(?:[^:]//|/\\*+|<!--|@|--|{!|{{!--|{{!))|(?: +[^\\n@]*?)(?= *(?:[^:]//|/\\*+|<!--|@|--(?!>)|{!|{{!--|{{!))|(?: +[^@\\n]+)?))": {
+        "filterFileRegex": ".*(?<!CHANGELOG.md)$",
+        "decorations": [
+            {
+                "overviewRulerColor": "#cc00cc",
+                "backgroundColor": "#cc00cc",
+                "color": "#1f1f1f",
+                "fontWeight": "bold"
+            },
+            {
+                "backgroundColor": "#cc00cc",
+                "color": "#1f1f1f"
+            }
+        ]
+    },
+    // 高亮时钟和复位信号
+  "(?<![\\w.])(clk|reset|rst_n|rst|clock|ena|enable)": {
+    "filterFileRegex": "\\.v$", // 只对 .v 文件生效
+    "decorations": [
+      {
+        "fontWeight": "bold"
+      }
+    ]
+  },
+
+  // 高亮边沿触发
+  "(?<!\\w)(posedge|negedge)(?!\\w)": {
+    "filterFileRegex": "\\.v$",
+    "decorations": [
+      {
+        "color": "#FF69B4",
+        "fontStyle": "italic"
+      }
+    ]
+  },
+
+    "(?<!\\w)(input|output|input)(?!\\w)": {
+    "filterFileRegex": "\\.v$",
+    "decorations": [
+      {
+        "color": "#e06c75",
+        "fontStyle": "italic"
+      }
+    ]
+  },
+    "(?<!\\w)(reg|wire|and|or|@|xor)(?!\\w)": {
+        "filterFileRegex": "\\.v$",
+        "decorations": [
+        {
+            "color": "#7fbf65",
+            "fontStyle": "italic"
+        }
+        ]
+    },
+    "(?<!\\w)(&&|\\|\\|)(?!\\w)": {
+    "filterFileRegex": "\\.v$",  // 只对 .v 文件生效
+    "decorations": [
+      {
+        "color": "#7fbf65",       // 绿色
+        "fontWeight": "bold"
+      }
+    ]
+  },
+    "(?<!\\w)(genvar|integer|int|real)(?!\\w)": {
+        "filterFileRegex": "\\.v$",
+        "decorations": [
+        {
+            "color": "#4095db",
+            "fontStyle": "italic"
+        }
+        ]
+    },
+    "(?<!\\w)(generate|endgenerate)(?!\\w)": {
+        "filterFileRegex": "\\.v$",
+        "decorations": [
+        {
+            "fontStyle": "italic"
+        }
+        ]
+    },
+},
+"peacock.favoriteColors": [
+    {
+        "name": "Angular Red",
+        "value": "#dd0531"
+    },
+    {
+        "name": "Azure Blue",
+        "value": "#007fff"
+    },
+    {
+        "name": "JavaScript Yellow",
+        "value": "#f9e64f"
+    },
+    {
+        "name": "Mandalorian Blue",
+        "value": "#1857a4"
+    },
+    {
+        "name": "Node Green",
+        "value": "#215732"
+    },
+    {
+        "name": "React Blue",
+        "value": "#61dafb"
+    },
+    {
+        "name": "Something Different",
+        "value": "#832561"
+    },
+    {
+        "name": "Svelte Orange",
+        "value": "#ff3d00"
+    },
+    {
+        "name": "Vue Green",
+        "value": "#42b883"
+    }
+],
+"editor.mouseWheelZoom": true,
+"cmake.configureOnOpen": false,
+"C_Cpp.default.cppStandard": "c++20",
+"C_Cpp.default.cStandard": "c17",
+"C_Cpp.intelliSenseEngine": "default",
+"C_Cpp.experimentalFeatures": "enabled",
+"python.analysis.typeCheckingMode": "basic",
+
+}
+

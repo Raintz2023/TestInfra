@@ -20,7 +20,7 @@ class ATE {
 
 public:
 
-    // 显示构造：波形文件名 + 是否启用 trace + 初始 top_data
+    // Waveform file name + Whether to enable trace + Initial top_data
     explicit ATE(std::string wave_name = {},
                  bool trace_enable = true,
                  uint8_t top_data_init = 0xFF);
@@ -37,13 +37,11 @@ public:
 
     void read(uint64_t addr);
 
-    void drive(unsigned int offset=0);
+    void drive(unsigned int offset=0, bool inverted=false);
 
-    void sample(int offset=0);
+    void sample(int offset=0, bool inverted=false);
 
     void compare();
-
-    void reverse_top_data();
 
     uint8_t top_data() const { return top_data_; }
 

@@ -1,7 +1,8 @@
 #include "Ate.h"
 
-// RAII: 资源获取即初始化，谁获取、使用资源，谁就应该初始化时获取资源，销毁时负责释放资源。
-// 不要将不安全对象对外暴露，以免外部将其释放。
+// RAII: Resource acquisition is initialization. 
+// What acquires and uses a resource should be responsible for obtaining it during construction and releasing it upon destruction.
+// Do not expose unsafe objects to the outside, as doing so may cause them to be released by the external party.
 ATE::ATE(std::string wave_name, bool trace_enable, uint8_t top_data_init) 
     : contextp_(std::make_unique<VerilatedContext>()), clock_(0), top_data_(top_data_init) {
     
@@ -14,7 +15,7 @@ ATE::ATE(std::string wave_name, bool trace_enable, uint8_t top_data_init)
         this->tfp_->open(wave_name.c_str());
     }
 
-    // ========= 初始化引脚 =========
+    // ========= Initialize the pins =========
     this->atep_->CLK   = 0;
     this->atep_->RST_N = 0;
     this->atep_->R     = 0;
@@ -22,12 +23,12 @@ ATE::ATE(std::string wave_name, bool trace_enable, uint8_t top_data_init)
     this->atep_->ADDR  = 0;
     this->atep_->DQ_IN = 0;
 
-    // ========= 复位序列 =========
+    // ========= Reset sequence =========
     this->init_reset_sequence_();
 }
 
 ATE::~ATE() {
-    // 析构顺序和构造顺序相反
+    // The order of destruction is opposite to the order of construction.
     if (this->tfp_) {
         this->tfp_->close();
     }
@@ -37,11 +38,9 @@ ATE::~ATE() {
 }
 
 void ATE::init_reset_sequence_() {
-    // 复位保持 2 个周期
     this->tick();
     this->tick();
 
-    // 释放复位
     this->atep_->RST_N = 1;
     this->tick();
 
@@ -50,16 +49,18 @@ void ATE::init_reset_sequence_() {
 }
 
 void ATE::tick(){
-    // 时钟控制函数
-    // negedge
+    // Clock control
     this->atep_->CLK = 0;
     this->atep_->eval();
-    this->tfp_->dump(this->clock_++);
+    if (this->tfp_) {
+        this->tfp_->dump(this->clock_++);
+    }
 
-    // posedge
     this->atep_->CLK = 1;
     this->atep_->eval();
-    this->tfp_->dump(this->clock_++);
+    if (this->tfp_) {
+        this->tfp_->dump(this->clock_++);
+    }
 }
 
 void ATE::mr_write(uint64_t addr, uint64_t mr_data) {
@@ -89,38 +90,66 @@ void ATE::mr_read(uint64_t addr) {
 }
 
 void ATE::write(uint64_t addr) {
-    // 在 posedge 到来前准备好写信号
     this->atep_->R = 0;
+    // tick 1
     this->atep_->W = 1;
-
     this->atep_->ADDR = addr & 0xFF;
-
-    // this->atep_->DQ_IN = this->top_data_;
-
-    // 跑一个周期：posedge 时写入
     this->tick();
-
-    // 写完立刻撤销 W
     this->atep_->W = 0;
     this->tick();
-
+    // tick 2
+    this->atep_->W = 1;
+    this->atep_->ADDR = (addr + 1) & 0xFF;
+    this->tick();
+    this->atep_->W = 0;
+    this->tick();
+    // tick 3
+    this->atep_->W = 1;
+    this->atep_->ADDR = (addr + 2) & 0xFF;
+    this->tick();
+    this->atep_->W = 0;
+    this->tick();
+    // tick 4
+    this->atep_->W = 1;
+    this->atep_->ADDR = (addr + 3) & 0xFF;
+    this->tick();
+    this->atep_->W = 0;
+    this->tick();
 }
 
 void ATE::read(uint64_t addr) {
     this->atep_->W = 0;
-    this->atep_->R = 1;
     this->atep_->DQ_IN = 0;
 
+    // tick 1
+    this->atep_->R = 1;
     this->atep_->ADDR = addr & 0xFF;
-
-    // 读请求
     this->tick();
-    // 读完撤销 R
+    this->atep_->R = 0;
+    this->tick();
+    // tick 2
+    this->atep_->R = 1;
+    this->atep_->ADDR = (addr + 1) & 0xFF;
+    this->tick();
+    this->atep_->R = 0;
+    this->tick();
+    // tick 3
+    this->atep_->R = 1;
+    this->atep_->ADDR = (addr + 2) & 0xFF;
+    this->tick();
+    this->atep_->R = 0;
+    this->tick();
+    // tick 4
+    this->atep_->R = 1;
+    this->atep_->ADDR = (addr + 3) & 0xFF;
+    this->tick();
     this->atep_->R = 0;
     this->tick();
 }
 
-void ATE::drive(unsigned int offset) {
+void ATE::drive(unsigned int offset, bool inverted) {
+
+    uint8_t top_data = (inverted)? this->top_data_ ^ 0xFF : this->top_data_;
 
     if (offset > 0) {
         this->atep_->DRIV_SHIFT = 1;
@@ -130,7 +159,7 @@ void ATE::drive(unsigned int offset) {
         this->atep_->DRIV_SHIFT = 0;
     }
 
-    this->atep_->DQ_IN = this->top_data_;
+    this->atep_->DQ_IN = top_data;
 
     this->atep_->DRIV = 1;
     this->tick();
@@ -140,10 +169,12 @@ void ATE::drive(unsigned int offset) {
 }
 
 
-void ATE::sample(int offset) {
+void ATE::sample(int offset, bool inverted) {
+
+    uint8_t top_data = (inverted)? this->top_data_ ^ 0xFF : this->top_data_;
 
     this->sample_cnts_ += 1;
-    this->top_data_vec_.push_back(this->top_data_);
+    this->top_data_vec_.push_back(top_data);
 
     if (offset > 0) {
         this->atep_->STRB_SHIFT = 1;
@@ -165,10 +196,6 @@ void ATE::compare() {
     uint32_t sample_cnts = this->sample_cnts_;
     uint32_t strb_cnts = (uint32_t)this->atep_->STRB_CNTS;
 
-    // for (int i = 0; i < this->sample_cnts_; i++) {
-    //     std::cout << "Sample data:" << (uint32_t)this->atep_->OUT_REG[i] << std::endl;
-    //     std::cout << "Top data:" << (uint32_t)this->top_data_vec_[i] << std::endl;
-    // }
     if (sample_cnts == strb_cnts) {
         bool pass = true;
         for (int i = 0; i < this->sample_cnts_; i++) {
@@ -187,10 +214,6 @@ void ATE::compare() {
     else {
         printf(".");
     }
-}
-
-void ATE::reverse_top_data() {
-    this->top_data_ = this->top_data_ ^ 0xFF;
 }
 
 void ATE::set_top_data(uint8_t data) {
