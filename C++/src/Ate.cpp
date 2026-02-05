@@ -205,14 +205,14 @@ void ATE::compare() {
             }
         }
         if (pass) {
-            printf("*");
+            std::cout << "*" << std::flush;
         }
         else {
-            printf(".");
+            std::cout << "." << std::flush;
         }
     }
     else {
-        printf(".");
+        std::cout << "." << std::flush;
     }
 }
 
@@ -232,10 +232,11 @@ void ATE::set_top_data(uint8_t data) {
             .def("tick", &ATE::tick)
             .def("write", &ATE::write, py::arg("addr"))
             .def("mr_write", &ATE::mr_write, py::arg("addr"), py::arg("mr_data"))
+            .def("mr_read", &ATE::mr_read, py::arg("addr"))
             .def("read", &ATE::read, py::arg("addr"))
-            .def("sample", &ATE::sample, py::arg("offset"))
+            .def("drive", &ATE::drive, py::arg("offset"), py::arg("inverted"))
+            .def("sample", &ATE::sample, py::arg("offset"), py::arg("inverted"))
             .def("compare", &ATE::compare)
-            .def("reverse_top_data", &ATE::reverse_top_data)
             .def("top_data", &ATE::top_data)
             .def("set_top_data", &ATE::set_top_data, py::arg("data"))
             .def("clock", &ATE::clock)

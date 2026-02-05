@@ -32,8 +32,10 @@ module Dram(
         if (!RST_N) begin
             DQ_OUT <= 8'd0;
             DQ_OE  <= 1'b0;
-            mr0_rl <= 8'd8;
-            mr1_wl <= 8'd8;
+            mr0_rl <= 8'd0;
+            mr1_wl <= 8'd0;
+
+            MR_OUT <= 8'b0;
 
             for (i = 0; i < 256; i = i + 1) begin
                 pipe_out_data[i]  <= 8'd0;

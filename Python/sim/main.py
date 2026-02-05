@@ -1,66 +1,56 @@
 import ate
 
-for i in range(-10, 11, 1):
-    ################# Macro #########################################
-    wave_name = f"/root/Code/TestInfra/Python/wave/wave_{i}.vcd"  
+for y in range(-10, 11, 1):
 
-    top_data = 0xFF     
+    for x in range(0, 11, 1): 
+        ################# Macro #########################################
+        wave_name = f"/root/Code/TestInfra/Python/wave/wave_{x}_{y}.vcd"
 
-    a = ate.ATE(wave_name=wave_name, trave_enable=True, top_data_init=top_data)     
+        top_data = 0xF0     
+        
+        a = ate.ATE(wave_name=wave_name, trave_enable=True, top_data_init=top_data)     
 
-    ################# Pattern ######################################### 
-    a.mr_write(addr=0, mr_data=56) 
+        ################# Pattern ######################################### 
+        a.mr_write(addr=0, mr_data=56) 
+        a.mr_write(addr=1, mr_data=54)
 
-    a.tick() 
+        for j in range(10):
+            a.tick()
 
-    addr = 0 
-    a.write(addr) 
+        addr = 0 
+        a.write(addr)
 
-    addr += 1
-    a.reverse_top_data()
-    a.write(addr)
+        for j in range(40):
+            a.tick()
 
-    addr += 1
-    a.reverse_top_data()
-    a.write(addr)
+        a.drive(offset=x, inverted=False)
+        a.drive(offset=x, inverted=True)
+        a.drive(offset=x, inverted=False)
+        a.drive(offset=x, inverted=True)
 
-    addr += 1
-    a.reverse_top_data()
-    a.write(addr)
+        for j in range(10):
+            a.tick()
 
-    a.reverse_top_data()
+        addr = 0 
+        a.read(addr)
 
-    addr = 0
-    a.read(addr)
-    addr += 1
-    # a.tick()
-    a.read(addr)
-    addr += 1
-    # a.tick()
-    a.read(addr)
-    addr += 1
-    # a.tick()
-    a.read(addr)
-    addr += 1
+        for j in range(50):
+            a.tick()
 
-    for j in range(50):
-        a.tick()
+        a.sample(offset=y, inverted=False)
+        a.sample(offset=y, inverted=True)
+        a.sample(offset=y, inverted=False)
+        a.sample(offset=y, inverted=True)
 
-    a.sample(i)
+        for j in range(50):
+            a.tick()
 
-    a.reverse_top_data()
-    a.sample(i)
+        a.compare()
 
-    a.reverse_top_data()
-    a.sample(i)
+        for j in range(10):
+            a.tick()
 
-    a.reverse_top_data()
-    a.sample(i)
+        ################# Pattern ######################################### 
+    print("\n")
 
-    for j in range(40):
-        a.tick()
-
-    ################# Macro ######################################### 
-    a.compare()
-
-a.print('\n')
+print("\n")

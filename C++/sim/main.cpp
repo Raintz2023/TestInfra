@@ -4,7 +4,7 @@ int main(int argc, char** argv) {
 
     for (int y = -10; y <= 10; y++) {
         for (int x = 0; x <= 10; x++) {
-            auto wave_name = std::format("/root/Code/TestInfra/Verilog/wave/wave_{}_{}.vcd", x, y);  
+            auto wave_name = std::format("/root/Code/TestInfra/C++/wave/wave_{}_{}.vcd", x, y);  
 
             uint8_t top_data = 0xF0;
             uint64_t addr;
