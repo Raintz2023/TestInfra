@@ -61,6 +61,8 @@ Thumbs.db
 
 *.fish
 
+_*_gen.py
+
 # ===== Config =====
 !Config/
 !Config/**

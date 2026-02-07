@@ -1,56 +1,53 @@
-import ate
-
+from ate import ATE
+################# Macro #########################################
 for y in range(-10, 11, 1):
-
     for x in range(0, 11, 1): 
-        ################# Macro #########################################
         wave_name = f"/root/Code/TestInfra/Python/wave/wave_{x}_{y}.vcd"
 
         top_data = 0xF0     
         
-        a = ate.ATE(wave_name=wave_name, trave_enable=True, top_data_init=top_data)     
+        ate = ATE(wave_name=wave_name, trave_enable=True, top_data_init=top_data)     
 
         ################# Pattern ######################################### 
-        a.mr_write(addr=0, mr_data=56) 
-        a.mr_write(addr=1, mr_data=54)
+        ate.mr_write(addr=0, mr_data=56) 
+        ate.tick()
+        ate.mr_write(addr=1, mr_data=54)
 
-        for j in range(10):
-            a.tick()
+        for j in range(16):
+            ate.tick()
 
         addr = 0 
-        a.write(addr)
+        ate.write(addr)
 
         for j in range(40):
-            a.tick()
+            ate.tick()
 
-        a.drive(offset=x, inverted=False)
-        a.drive(offset=x, inverted=True)
-        a.drive(offset=x, inverted=False)
-        a.drive(offset=x, inverted=True)
+        ate.drive(offset=x, inverted=False)
+        ate.drive(offset=x, inverted=True)
+        ate.drive(offset=x, inverted=False)
+        ate.drive(offset=x, inverted=True)
 
-        for j in range(10):
-            a.tick()
+        for j in range(16):
+            ate.tick()
 
         addr = 0 
-        a.read(addr)
+        ate.read(addr)
 
         for j in range(50):
-            a.tick()
+            ate.tick()
 
-        a.sample(offset=y, inverted=False)
-        a.sample(offset=y, inverted=True)
-        a.sample(offset=y, inverted=False)
-        a.sample(offset=y, inverted=True)
+        ate.sample(offset=y, inverted=False)
+        ate.sample(offset=y, inverted=True)
+        ate.sample(offset=y, inverted=False)
+        ate.sample(offset=y, inverted=True)
 
         for j in range(50):
-            a.tick()
-
-        a.compare()
-
-        for j in range(10):
-            a.tick()
+            ate.tick()
 
         ################# Pattern ######################################### 
+
+        ate.compare()
+
     print("\n")
 
 print("\n")

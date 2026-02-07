@@ -1,0 +1,11 @@
+start: mrw
+
+mrw: "MRW" "<" value "," value
+
+value: INT
+     | NAME
+
+%import common.INT
+%import common.CNAME -> NAME
+%import common.WS
+%ignore WS
