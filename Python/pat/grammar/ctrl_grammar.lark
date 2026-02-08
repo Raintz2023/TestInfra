@@ -1,0 +1,10 @@
+?start: nop
+    | for_
+
+nop: "NOP"
+for_: "FOR-" INT
+
+%import common.INT
+%import common.WS
+%ignore WS
+

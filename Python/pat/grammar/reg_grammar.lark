@@ -1,0 +1,14 @@
+?start: assign
+assign: REG "=" expr
+
+?expr: term
+     | expr "+" term   -> add
+
+?term: INT           -> int_lit
+     | REG           -> var
+
+%import common.INT
+%import common.WS
+%ignore WS
+
+REG: "ADDR" | "VAL" | "TEMP"
