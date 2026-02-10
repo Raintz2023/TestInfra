@@ -11,4 +11,4 @@ assign: REG "=" expr
 %import common.WS
 %ignore WS
 
-REG: "ADDR" | "VAL" | "TEMP"
+REG: "X" | "Y" | "ADDR" | "VAL" | "TEMP"

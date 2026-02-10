@@ -35,6 +35,29 @@ def emit_python(ir_list: Iterable[object], out_path: str | Path, func_name: str 
             lines.append(f"{indent}ate.mr_write({ins.addr}, {ins.data})")
             cmd_count += 1
 
+        elif isinstance(ins, WR):
+            lines.append(f"{indent}ate.write({ins.addr})")
+            cmd_count += 1
+
+        elif isinstance(ins, RD):
+            lines.append(f"{indent}ate.read({ins.addr})")
+            cmd_count += 1
+            
+        elif isinstance(ins, DRV):
+            if ins.bool_ == "T":
+                lines.append(f"{indent}ate.drive({ins.shift}, True)")
+            else:
+                lines.append(f"{indent}ate.drive({ins.shift}, False)")
+            cmd_count += 1
+        
+        elif isinstance(ins, SMP):
+            if ins.bool_ == "T":
+                lines.append(f"{indent}ate.sample({ins.shift}, True)")
+            else:
+                lines.append(f"{indent}ate.sample({ins.shift}, False)")
+            cmd_count += 1
+    
+
         elif isinstance(ins, NO_REG):
             pass
 

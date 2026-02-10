@@ -1,11 +1,27 @@
-start: mrw
+?start: cmd
+cmd: OP "<" args
 
-mrw: "MRW" "<" value "," value
+OP: "MRW" | "WR" | "RD" | "DRV" | "SMP"
 
-value: INT
-     | NAME
+?args: mrw_args
+     | wr_rd_args
+     | drv_smp_args
+
+mrw_args: addr_expr "," expr
+wr_rd_args: addr_expr
+drv_smp_args: expr ("," BOOL)?
+
+addr_expr: "ADDR" ("+" term)?
+
+?expr: term
+     | expr "+" term   -> add
+
+?term: INT      
+     | REG             
+
+REG: "X" | "Y" | "VAL" | "TEMP"
+BOOL: "F" | "T"
 
 %import common.INT
-%import common.CNAME -> NAME
 %import common.WS
 %ignore WS

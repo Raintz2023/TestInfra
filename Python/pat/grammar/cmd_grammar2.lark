@@ -1,0 +1,35 @@
+?start: mrw
+    | wr
+    | rd
+    | drv
+    | smp
+
+?mrw: "MRW" "<" "ADDR" "," expr -> mrw1
+    | "MRW" "<" "ADDR" "+" expr "," expr -> mrw2
+
+?wr: "WR" "<" "ADDR" -> wr1
+    | "WR" "<" "ADDR" "+" term -> wr2
+
+?rd: "RD" "<" "ADDR" -> rd1
+    | "RD" "<" "ADDR" "+" term -> rd2
+
+?drv: "DRV" "<" expr -> drv1
+    | "DRV" "<" expr "," BOOL -> drv2
+
+?smp: "SMP" "<" expr -> smp1
+    | "SMP" "<" expr "," BOOL -> smp2
+
+?expr: term
+    | expr "+" term -> add
+
+?term: INT           -> int_lit
+    | REG           -> var
+
+%import common.INT
+%import common.CNAME -> NAME
+%import common.WS
+%ignore WS
+
+REG: "X" | "Y" | "VAL" | "TEMP"
+
+BOOL: "F" | "T"

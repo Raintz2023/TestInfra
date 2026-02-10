@@ -66,6 +66,31 @@ class TICK(CMD):
 class MRW(CMD):
     addr: str
     data: str
-
     def __repr__(self):
-        return "CMD.MRW"
+        return f"CMD.MRW(addr={self.addr}, data={self.data})"
+
+@dataclass(frozen=True)
+class WR(CMD):
+    addr: str
+    def __repr__(self):
+        return f"CMD.WR(addr={self.addr})"
+    
+@dataclass(frozen=True)
+class RD(CMD):
+    addr: str
+    def __repr__(self):
+        return f"CMD.RD(addr={self.addr})"
+
+@dataclass(frozen=True)
+class DRV(CMD):
+    shift: str
+    bool_: str
+    def __repr__(self):
+        return f"CMD.DRV(shift={self.shift}, inverted={self.bool_})"
+
+@dataclass(frozen=True)
+class SMP(CMD):
+    shift: str
+    bool_: str
+    def __repr__(self):
+        return f"CMD.SMP(shift={self.shift}, inverted={self.bool_})"
