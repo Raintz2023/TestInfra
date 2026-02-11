@@ -8,7 +8,7 @@ OP: "MRW" | "WR" | "RD" | "DRV" | "SMP"
      | drv_smp_args
 
 mrw_args: addr_expr "," expr
-wr_rd_args: addr_expr
+?wr_rd_args: addr_expr
 drv_smp_args: expr ("," BOOL)?
 
 addr_expr: "ADDR" ("+" term)?

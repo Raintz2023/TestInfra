@@ -228,7 +228,7 @@ void ATE::set_top_data(uint8_t data) {
         m.doc() = "pybind11 ate class";
 
         py::class_<ATE>(m, "ATE")
-            .def(py::init<std::string, bool, uint8_t>(), py::arg("wave_name"), py::arg("trave_enable"), py::arg("top_data_init"))
+            .def(py::init<std::string, bool, uint8_t>(), py::arg("wave_name"), py::arg("trace_enable"), py::arg("top_data_init"))
             .def("tick", &ATE::tick)
             .def("write", &ATE::write, py::arg("addr"))
             .def("mr_write", &ATE::mr_write, py::arg("addr"), py::arg("mr_data"))
@@ -239,7 +239,6 @@ void ATE::set_top_data(uint8_t data) {
             .def("compare", &ATE::compare)
             .def("top_data", &ATE::top_data)
             .def("set_top_data", &ATE::set_top_data, py::arg("data"))
-            .def("clock", &ATE::clock)
-            .def("print", &ATE::print);
+            .def("clock", &ATE::clock);
     }
 #endif

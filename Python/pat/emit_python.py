@@ -20,7 +20,7 @@ def emit_python(ir_list: Iterable[object], out_path: str | Path, func_name: str 
     lines.append("")
     lines.append("from ate import ATE")
     lines.append("")
-    lines.append(f"def {func_name}(ate: ATE):")
+    lines.append(f"def {func_name}(ate: ATE, X=0, Y=0, ADDR=0, VAL=0, TEMP=0):")
 
     cmd_count = 0
     ctrl_count = 0

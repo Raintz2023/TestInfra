@@ -20,8 +20,8 @@ class CmdToIR(Transformer):
     def mrw_args(self, addr, data):
         return (addr, data)
 
-    def wr_rd_args(self, addr):
-        return addr
+    # def wr_rd_args(self, addr):
+    #     return addr
 
     def drv_smp_args(self, value, flag=None):
         return (value, flag)
