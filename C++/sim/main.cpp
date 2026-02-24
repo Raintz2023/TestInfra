@@ -9,7 +9,7 @@ int main(int argc, char** argv) {
             uint8_t top_data = 0xF0;
             uint64_t addr;
 
-            ATE ate{wave_name, false, top_data};
+            ATE ate{wave_name, true, top_data};
 
             ate.mr_write(0, 56);
             ate.mr_write(1, 54);
