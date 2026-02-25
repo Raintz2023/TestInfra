@@ -36,7 +36,7 @@ set -gx PYTHON_SIM $PYTHON/sim
 set -gx PYTHON_STUBS $PYTHON/stubs
 set -gx PYTHON_WAVE $PYTHON/wave
 
-# Python path
+# Python path to find .so
 set -gx PYTHONPATH $PYTHON_LIBS $PYTHONPATH
 
 
@@ -165,7 +165,7 @@ alias cate="$CPP/obj_dir/VAte"
 
 function pate
     pushd $TI >/dev/null
-    command python -m Python.sim.main
+    command python3 -m Python.sim.main
     set -l rc $status
     popd >/dev/null
     return $rc
@@ -223,4 +223,12 @@ function cwave --description "Open TestInfra VCD in GTKWave"
     end
 
     command gtkwave $vcd
+end
+
+function venv
+    pushd $TI >/dev/null
+    source ./.venv/bin/activate.fish
+    set -l rc $status
+    popd >/dev/null
+    return $rc
 end

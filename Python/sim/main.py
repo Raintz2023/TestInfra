@@ -1,5 +1,5 @@
 from ate import ATE
-from Python.pat.generated._one_write_read_gen import run
+from Python.pat.generated.OneWriteRead import run
 ################# Macro #########################################
 for y in range(0, 200, 10):
     for x in range(0, 128, 4): 
