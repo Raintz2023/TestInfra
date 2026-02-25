@@ -7,34 +7,40 @@ if status is-interactive
     alias ll='eza -l --icons --git'
     alias la='eza -a --icons'
 end
-set -x LD_LIBRARY_PATH /usr/lib64 $LD_LIBRARY_PATH
-set -x PYTHONPATH /root/Code/TestInfra/Python/libs $PYTHONPATH
 
 ############################BUILD############################
-set -x TI /root/Code/TestInfra
+# -------- Project --------
+set -gx TI /home/seagull/Code/TestInfra
 
-set -x VERILOG /root/Code/TestInfra/Verilog
-set -x VERILOG_RTL /root/Code/TestInfra/Verilog/rtl
+# -------- System --------
+set -gx LD_LIBRARY_PATH /usr/lib64 $LD_LIBRARY_PATH
 
-set -x CPP /root/Code/TestInfra/C++
-set -x CPP_INC /root/Code/TestInfra/C++/include
-set -x CPP_SRC /root/Code/TestInfra/C++/src
-set -x CPP_SIM /root/Code/TestInfra/C++/sim
-set -x CPP_BUILD /root/Code/TestInfra/C++/build
-set -x CPP_WAVE /root/Code/TestInfra/C++/wave
+# -------- Verilog --------
+set -gx VERILOG $TI/Verilog
+set -gx VERILOG_RTL $VERILOG/rtl
 
-set -x PYTHON /root/Code/TestInfra/Python
-set -x PYTHON_LIBS /root/Code/TestInfra/Python/libs
-set -x PYTHON_PAT_PATTERN /root/Code/TestInfra/Python/pat/pattern
-set -x PYTHON_PAT_GEN /root/Code/TestInfra/Python/pat/pattern/generated
-set -x PYTHON_SIM /root/Code/TestInfra/Python/sim
-set -x PYTHON_STUBS /root/Code/TestInfra/Python/stubs
-set -x PYTHON_WAVE /root/Code/TestInfra/Python/wave
+# -------- C++ --------
+set -gx CPP $TI/C++
+set -gx CPP_INC $CPP/include
+set -gx CPP_SRC $CPP/src
+set -gx CPP_SIM $CPP/sim
+set -gx CPP_BUILD $CPP/build
+set -gx CPP_WAVE $CPP/wave
+
+# -------- Python --------
+set -gx PYTHON $TI/Python
+set -gx PYTHON_LIBS $PYTHON/libs
+set -gx PYTHON_PAT_PATTERN $PYTHON/pat/pattern
+set -gx PYTHON_PAT_GEN $PYTHON_PAT_PATTERN/generated
+set -gx PYTHON_SIM $PYTHON/sim
+set -gx PYTHON_STUBS $PYTHON/stubs
+set -gx PYTHON_WAVE $PYTHON/wave
+
+# Python path
+set -gx PYTHONPATH $PYTHON_LIBS $PYTHONPATH
 
 
 function vbuild --description "Build Verilog sim with Verilator (TestInfra)"
-    set -l proj /root/Code/TestInfra
-    set -l cdir $proj/C++
 
     # 必要环境变量检查
     for v in VERILOG_RTL CPP_SIM CPP_SRC CPP_INC
@@ -44,12 +50,12 @@ function vbuild --description "Build Verilog sim with Verilator (TestInfra)"
         end
     end
 
-    if not test -d $cdir
-        echo "vbuild: directory not found: $cdir" >&2
+    if not test -d $CPP
+        echo "vbuild: directory not found: $CPP" >&2
         return 2
     end
 
-    pushd $cdir >/dev/null
+    pushd $CPP >/dev/null
 
     command verilator -Wall --cc \
         $VERILOG_RTL/Ate.v \
@@ -167,7 +173,7 @@ end
 
 function pwave --description "Open TestInfra VCD in GTKWave"
     if not set -q PYTHON
-        echo "wave: missing env var PYTHON (e.g. set -Ux PYTHON /root/Code/TestInfra/Python)" >&2
+        echo "wave: missing env var PYTHON (e.g. set -Ux PYTHON $TI/Python)" >&2
         return 2
     end
 
@@ -194,7 +200,7 @@ end
 
 function cwave --description "Open TestInfra VCD in GTKWave"
     if not set -q CPP
-        echo "wave: missing env var CPP (e.g. set -Ux CPP /root/Code/TestInfra/C++)" >&2
+        echo "wave: missing env var CPP (e.g. set -Ux CPP $TI/C++)" >&2
         return 2
     end
 
