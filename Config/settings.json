@@ -20,7 +20,7 @@
         "statusBar.foreground": "#e9e6e6",
         "statusBar.debuggingForeground": "#e9e6e6",
         "editor.lineHighlightBackground": "#00000000",
-        "editor.lineHighlightBorder": "#00000000",
+        "editor.lineHighlightBorder": "#00000000"
         
     },
 
@@ -44,15 +44,15 @@
             },
             {
                 "scope": ["constant.language.pattern"],
-                "settings": { "foreground": "#d4995b" }
+                "settings": { "foreground": "#d4995b", "fontStyle": "underline" }
             },
             {
-                "scope": ["constant.numeric", "constant.numeric.hex.pattern", "constant.numeric.decimal.pattern"],
+                "scope": ["constant.numeric.pattern", "constant.numeric.hex.pattern", "constant.numeric.decimal.pattern"],
                 "settings": { "foreground": "#deae01" }
             },
             {
                 "scope": ["entity.name.type.pattern"],
-                "settings": { "foreground": "#45c364" }
+                "settings": { "foreground": "#45c364"}
             },
             {
                 "scope": ["keyword.operator.arithmetic.pattern", "keyword.operator.assignment.pattern", "keyword.operator.pattern"],
@@ -61,6 +61,10 @@
             {
                 "scope": ["punctuation.terminator.statement.pattern", "punctuation.separator.colon.pattern", "punctuation.separator.pipe.pattern", "punctuation.definition.separator.pattern"],
                 "settings": { "foreground": "#BBBBBB" }
+            },
+            {
+                "scope": ["keyword.control.pattern"],
+                "settings": { "foreground": "#D55FDE", "fontStyle": "italic bold"  }
             }
         ]
         
@@ -72,7 +76,7 @@
 ],
 "[python]": {
     "editor.defaultFormatter": "ms-python.autopep8",
-    "editor.formatOnSave": true,
+    "editor.formatOnSave": true
 },
 
 "python.languageServer": "Pylance",
@@ -371,7 +375,7 @@
             "fontStyle": "italic"
         }
         ]
-    },
+    }
 },
 "peacock.favoriteColors": [
     {
@@ -417,7 +421,7 @@
 "C_Cpp.default.cStandard": "c17",
 "C_Cpp.intelliSenseEngine": "default",
 "C_Cpp.experimentalFeatures": "enabled",
-"python.analysis.typeCheckingMode": "basic",
+"python.analysis.typeCheckingMode": "basic"
 
 }
 
