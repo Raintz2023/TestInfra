@@ -41,6 +41,26 @@
                 "settings": {
                     "foreground": "#a6b2c0"
                 }
+            },
+            {
+                "scope": ["constant.language.pattern"],
+                "settings": { "foreground": "#d4995b" }
+            },
+            {
+                "scope": ["constant.numeric", "constant.numeric.hex.pattern", "constant.numeric.decimal.pattern"],
+                "settings": { "foreground": "#deae01" }
+            },
+            {
+                "scope": ["entity.name.type.pattern"],
+                "settings": { "foreground": "#45c364" }
+            },
+            {
+                "scope": ["keyword.operator.arithmetic.pattern", "keyword.operator.assignment.pattern", "keyword.operator.pattern"],
+                "settings": { "foreground": "#45b4c3" }
+            },
+            {
+                "scope": ["punctuation.terminator.statement.pattern", "punctuation.separator.colon.pattern", "punctuation.separator.pipe.pattern", "punctuation.definition.separator.pattern"],
+                "settings": { "foreground": "#BBBBBB" }
             }
         ]
         
