@@ -36,7 +36,7 @@ def run(ate: ATE, X=0, Y=0, ADDR=0, VAL=0, TEMP=0):
     ate.tick()
     ate.tick()
     ADDR = 0
-    ate.write(ADDR + X)
+    ate.write(ADDR)
     for i in range(5):
         ate.tick()
         ate.tick()
@@ -46,10 +46,10 @@ def run(ate: ATE, X=0, Y=0, ADDR=0, VAL=0, TEMP=0):
         ate.tick()
         ate.tick()
         ate.tick()
-    ate.drive(4, False)
-    ate.drive(4, True)
-    ate.drive(4, False)
-    ate.drive(4, True)
+    ate.drive(X, False)
+    ate.drive(X, True)
+    ate.drive(X, False)
+    ate.drive(X, True)
     for i in range(2):
         ate.tick()
         ate.tick()
@@ -66,7 +66,7 @@ def run(ate: ATE, X=0, Y=0, ADDR=0, VAL=0, TEMP=0):
     ate.tick()
     ate.tick()
     ADDR = 0
-    ate.read(ADDR + X)
+    ate.read(ADDR)
     for i in range(6):
         ate.tick()
         ate.tick()
@@ -76,10 +76,10 @@ def run(ate: ATE, X=0, Y=0, ADDR=0, VAL=0, TEMP=0):
         ate.tick()
         ate.tick()
         ate.tick()
-    ate.sample(2, False)
-    ate.sample(2, True)
-    ate.sample(2, False)
-    ate.sample(2, True)
+    ate.sample(Y, False)
+    ate.sample(Y, True)
+    ate.sample(Y, False)
+    ate.sample(Y, True)
     for i in range(6):
         ate.tick()
         ate.tick()

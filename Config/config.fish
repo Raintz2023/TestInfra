@@ -31,12 +31,12 @@ set -gx CPP_WAVE $CPP/wave
 set -gx PYTHON $TI/Python
 set -gx PYTHON_LIBS $PYTHON/libs
 set -gx PYTHON_PAT_PATTERN $PYTHON/pat/pattern
-set -gx PYTHON_PAT_GEN $PYTHON_PAT_PATTERN/generated
+set -gx PYTHON_PAT_GEN $PYTHON/pat/generated
 set -gx PYTHON_SIM $PYTHON/sim
 set -gx PYTHON_STUBS $PYTHON/stubs
 set -gx PYTHON_WAVE $PYTHON/wave
 
-# Python path to find .so
+# Python path
 set -gx PYTHONPATH $PYTHON_LIBS $PYTHONPATH
 
 
@@ -165,7 +165,7 @@ alias cate="$CPP/obj_dir/VAte"
 
 function pate
     pushd $TI >/dev/null
-    command python3 -m Python.sim.main
+    command python -m Python.sim.main
     set -l rc $status
     popd >/dev/null
     return $rc

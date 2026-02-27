@@ -120,6 +120,7 @@ def row_to_ir(row: Row):
                 ir_list.append(ir)
             except Exception as e:
                 ir_list.append(f"UNSUPPORTED_CMD({cmd!r})  err={e}")
+    print(ir_list)
     return ir_list
 
 

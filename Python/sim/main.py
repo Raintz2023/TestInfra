@@ -1,9 +1,10 @@
 from ate import ATE
 from Python.pat.generated.OneWriteRead import run
 ################# Macro #########################################
-for y in range(0, 200, 10):
-    for x in range(0, 128, 4): 
-        wave_name = f"/root/Code/TestInfra/Python/wave/wave_{x}_{y}.vcd"
+print("--- ATE Test Start ---")
+for y in range(-10, 10, 1):
+    for x in range(0, 10, 1): 
+        wave_name = f"/home/seagull/Code/TestInfra/Python/wave/wave_{x}_{y}.vcd"
 
         top_data = y & 0xFF    
         
