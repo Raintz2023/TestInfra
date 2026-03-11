@@ -15,3 +15,10 @@ def _reg_texts_from_row(row:Row) -> list:
     reg = row.reg.strip()
     return [r.strip() for r in reg.split(",")]
 
+def _count_label_in_ctrl(line:str) -> int:
+    num = 0
+    for s in line:
+        if s == "#":
+            num += 1
+            
+    return num

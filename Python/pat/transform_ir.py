@@ -7,11 +7,23 @@ from Python.pat.parser import parse_cmd, parse_reg, parse_ctrl
 from Python.pat.tools import _cmd_texts_from_row, _reg_texts_from_row
 
 tree.Tree
+
+
 @v_args(inline=True)
 class CtrlToIR(Transformer):
 
-    def nop(self): return NOP()
-    def for_(self, t): return FOR(t)
+    def nop(self): return NOP(None)
+
+    def rtn(self): return RTN(None)
+
+    def for_(self, times): return FOR(None, int(times))
+
+    def goto(self, times, target): return GOTO(None, int(times), target)
+
+    def labeled_ctrl(self, label, ctrl):
+        lab = label.value if hasattr(label, "value") else str(label)
+        return ctrl.with_label(lab)
+
 
 @v_args(inline=True)
 class CmdToIR(Transformer):
@@ -25,17 +37,18 @@ class CmdToIR(Transformer):
 
     def drv_smp_args(self, value, flag=None):
         return (value, flag)
-    
+
     def addr_expr(self, offset=None):
         # grammar: "ADDR" ("+" term)?
         if offset is None:
             return "ADDR"
         return f"ADDR + {offset}"
-    
+
     def INT(self, t): return int(t)
     def BOOL(self, b): return b.value
     def REG(self, r): return r.value
     def OP(self, o): return o.value
+    def reset(self): return RST()
 
     def cmd(self, op, args):
         # "MRW" / "WR" / "RD" / ...
@@ -83,11 +96,11 @@ def row_to_ir(row: Row):
     ir_list = []
 
     # 1) 空 CTRL：NO_CTRL
-    if (not row.ctrl.strip()):
+    if (not row.ctrl.split('#')[1]):
         ir_list.append(NO_CTRL())
     # 2) 非空 CTRL: 返回对应IR
     else:
-        ctrl = row.ctrl.strip()
+        ctrl = row.ctrl
         try:
             tree = parse_ctrl(ctrl)
             ir = CtrlToIR().transform(tree)
@@ -120,19 +133,36 @@ def row_to_ir(row: Row):
                 ir_list.append(ir)
             except Exception as e:
                 ir_list.append(f"UNSUPPORTED_CMD({cmd!r})  err={e}")
-    print(ir_list)
+    # print(ir_list)
     return ir_list
 
 
-def pat_to_ir(pat_path: str) -> list[CMD | REG | CTRL]:
+def trans_pat(pat_path: str):
+    """transform pattern to available list
+
+    Args:
+        pat_path (str): the path of pattern
+
+    Raises:
+        Exception: no testflow to carry out
+
+    Returns:
+        _type_: testflow_list[Row(testflow)], ir_list[Row(ir)]
+    """
+    testflow_list = []
     ir_list = []
     rows = read_pat(pat_path=pat_path)
 
     for row in rows:
         if row is None:
             continue
-        r = row_to_ir(row)
+        if row.ctrl != "TESTFLOW":
+            r = row_to_ir(row)
+            ir_list.extend(r)
+        else:
+            testflow_list.append(row)
 
-        ir_list.extend(r)
-
-    return ir_list
+    if not testflow_list:
+        raise Exception("No testflow")  ##
+    
+    return testflow_list, ir_list

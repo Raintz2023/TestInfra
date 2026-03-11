@@ -1,4 +1,4 @@
-#include "Ate.h"
+#include "Ate.h"   // TODO:RESET
 
 // RAII: Resource acquisition is initialization. 
 // What acquires and uses a resource should be responsible for obtaining it during construction and releasing it upon destruction.
@@ -44,6 +44,16 @@ void ATE::init_reset_sequence_() {
     this->atep_->RST_N = 1;
     this->tick();
 
+    this->sample_cnts_ = 0;
+    this->top_data_vec_.clear();
+}
+
+void ATE::reset() {
+    this->atep_->RST_N = 1;
+    this->tick();
+    this->atep_->RST_N = 0;
+    this->tick();
+    
     this->sample_cnts_ = 0;
     this->top_data_vec_.clear();
 }
@@ -117,7 +127,7 @@ void ATE::write(uint64_t addr) {
     this->tick();
 }
 
-void ATE::read(uint64_t addr) {
+void ATE::read(uint64_t addr) {   // TODO:
     this->atep_->W = 0;
     this->atep_->DQ_IN = 0;
 
@@ -239,6 +249,7 @@ void ATE::set_top_data(uint8_t data) {
             .def("compare", &ATE::compare)
             .def("top_data", &ATE::top_data)
             .def("set_top_data", &ATE::set_top_data, py::arg("data"))
-            .def("clock", &ATE::clock);
+            .def("clock", &ATE::clock)
+            .def("reset", &ATE::reset);
     }
 #endif

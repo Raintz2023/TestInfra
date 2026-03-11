@@ -4,7 +4,7 @@ project(ate LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(VERILATOR_INC /usr/share/verilator/include)
-set(OBJDIR /root/Code/TestInfra/Verilog/obj_dir)
+set(OBJDIR /home/seagull/Code/TestInfra/C++/obj_dir)
 
 # Python
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
@@ -43,7 +43,7 @@ target_link_libraries(ate PRIVATE Python3::Python)
 
 # 输出目录
 set_target_properties(ate PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY "/root/Code/TestInfra/Python/libs"
+    LIBRARY_OUTPUT_DIRECTORY "/home/seagull/Code/TestInfra/Python/libs"
 )
 
 # 增加编译选项

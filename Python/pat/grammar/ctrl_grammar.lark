@@ -1,10 +1,23 @@
-?start: nop
+?start: stmt+
+
+?stmt: labeled_ctrl
+    | ctrl
+
+labeled_ctrl: LABEL "#" ctrl
+
+?ctrl: nop
     | for_
+    | goto
+    | rtn
 
 nop: "NOP"
+rtn: "RTN"
 for_: "FOR-" INT
+goto: "GOTO-" INT LABEL
+
+
+LABEL: /[A-Z][A-Z0-9_]*/
 
 %import common.INT
 %import common.WS
 %ignore WS
-

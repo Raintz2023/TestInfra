@@ -165,7 +165,7 @@ alias cate="$CPP/obj_dir/VAte"
 
 function pate
     pushd $TI >/dev/null
-    command python -m Python.sim.main
+    command python -m Python.sim.main $argv
     set -l rc $status
     popd >/dev/null
     return $rc

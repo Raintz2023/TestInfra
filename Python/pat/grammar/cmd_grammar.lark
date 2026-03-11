@@ -1,7 +1,9 @@
 ?start: cmd
+     |reset
 cmd: OP "<" args
 
 OP: "MRW" | "WR" | "RD" | "DRV" | "SMP"
+reset: "RST"
 
 ?args: mrw_args
      | wr_rd_args

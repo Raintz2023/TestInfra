@@ -1,30 +1,71 @@
 # Intermediate Representation
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from abc import ABC, abstractmethod
 
 ################################### CTRL####################################
 
-
+@dataclass(frozen=True)
 class CTRL(ABC):
+    label: str | None = None
     @abstractmethod
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "CTRL"
 
+def _pfx(label: str | None) -> str:
+    return "" if label is None else f"{label}# "
+
+@dataclass(frozen=True)
 class NO_CTRL(CTRL):
-    def __repr__(self):
-        return "CTRL.NO_CTRL"
-
+    def __repr__(self) -> str:
+        return f"CTRL.NO_CTRL"
+    
+    
+@dataclass(frozen=True)
 class NOP(CTRL):
-    def __repr__(self):
-        return "CTRL.NOP"
+    label: str | None = None
 
+    def with_label(self, label: str) -> "NOP":
+        return replace(self, label=label)
 
-@dataclass(frozen=True)  # Fields cannot be modified after object creation.
+    def __repr__(self) -> str:
+        return f"{_pfx(self.label)}CTRL.NOP"
+    
+@dataclass(frozen=True)
+class RTN(CTRL):
+    label: str | None = None
+
+    def with_label(self, label: str) -> "RTN":
+        return replace(self, label=label)
+
+    def __repr__(self) -> str:
+        return f"{_pfx(self.label)}CTRL.RTN"
+
+@dataclass(frozen=True)
 class FOR(CTRL):
-    times: str
+    label: str | None = None
+    times: int = 0
+
+    def with_label(self, label: str) -> "FOR":
+        return replace(self, label=label)
+
+    def __repr__(self) -> str:
+        return f"{_pfx(self.label)}CTRL.FOR-{self.times}"
+    
+@dataclass(frozen=True)  # Fields cannot be modified after object creation.
+class GOTO(CTRL):
+    label: str | None = None
+    times: int = 0
+    target:str = ""
+
+    def with_label(self, label: str) -> "GOTO":
+        return replace(self, label=label)
+    
+    def reduce_times(self) -> "GOTO":
+        return replace(self, times=self.times-1)
+    
     def __repr__(self):
-        return "CTRL.FOR"
+        return f" {self.label}# CTRL.GOTO-{self.times} {self.target}"
 
 ################################### REG#####################################
 
@@ -46,7 +87,7 @@ class ASSIGN(REG):
     value: str
 
     def __repr__(self):
-        return "REG.ASSIGN"
+        return f"REG.ASSIGN(reg={self.name}, val={self.value})"
 
 ################################### CMD######################################
 
@@ -94,3 +135,8 @@ class SMP(CMD):
     bool_: str
     def __repr__(self):
         return f"CMD.SMP(shift={self.shift}, inverted={self.bool_})"
+    
+    
+class RST(CMD):
+    def __repr__(self):
+        return f"CMD.RST"

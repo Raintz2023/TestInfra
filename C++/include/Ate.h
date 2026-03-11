@@ -51,6 +51,8 @@ public:
 
     void print(std::string s) { std::cout << s << std::endl;}
 
+    void reset();
+
 private:
 
     void init_reset_sequence_();
