@@ -163,6 +163,6 @@ def trans_pat(pat_path: str):
             testflow_list.append(row)
 
     if not testflow_list:
-        raise Exception("No testflow")  ##
+        raise TestflowError(f"{pat_path} has not testflow.")  ##
     
     return testflow_list, ir_list

@@ -1,8 +1,4 @@
-{    "python.analysis.extraPaths": [
-            "/root/Code/TestInfra/Python/libs",
-            "/root/Code/TestInfra/Python/stubs"
-        ],
-
+{
     "workbench.colorTheme": "One Dark Pro Italic Vivid",
     "editor.fontFamily": "'ComicCode Nerd Font', '悠哉字体 Medium', monospace",
     "workbench.iconTheme": "material-icon-theme",
@@ -21,8 +17,8 @@
         "statusBar.debuggingForeground": "#e9e6e6",
         "editor.lineHighlightBackground": "#00000000",
         "editor.lineHighlightBorder": "#00000000"
-        
     },
+
 
     "editor.tokenColorCustomizations": {
 
@@ -65,7 +61,24 @@
             {
                 "scope": ["keyword.control.pattern"],
                 "settings": { "foreground": "#D55FDE", "fontStyle": "italic bold"  }
-            }
+            },
+            {
+                "scope": ["entity.name.label.pattern"],
+                "settings": { "foreground": "#52ADF2"}
+            },
+            {
+                "scope": ["punctuation.definition.label.hash.pattern"],
+                "settings": { "foreground": "#52ADF2"}
+            },
+            {
+                "scope": ["keyword.testflow.pattern"],
+                "settings": { "foreground": "#e06c75"}
+            },
+            {
+                "scope": ["meta.label.arrow.pattern"],
+                "settings": { "foreground": "#45b4c3"}
+            },
+
         ]
         
     },
@@ -76,7 +89,7 @@
 ],
 "[python]": {
     "editor.defaultFormatter": "ms-python.autopep8",
-    "editor.formatOnSave": true
+    "editor.formatOnSave": true,
 },
 
 "python.languageServer": "Pylance",
@@ -375,7 +388,7 @@
             "fontStyle": "italic"
         }
         ]
-    }
+    },
 },
 "peacock.favoriteColors": [
     {
@@ -421,7 +434,16 @@
 "C_Cpp.default.cStandard": "c17",
 "C_Cpp.intelliSenseEngine": "default",
 "C_Cpp.experimentalFeatures": "enabled",
-"python.analysis.typeCheckingMode": "basic"
+"python.analysis.typeCheckingMode": "basic",
+"indentRainbow.colors": [
+    "rgba(29, 78, 137,0.15)",
+    "rgba(58, 178, 202,0.15)",
+    "rgba(125, 207, 182, 0.15)",
+    "rgba(251, 209, 162,0.15)",
+    "rgba(247, 146, 86,0.15)",
+    "rgba(247, 146, 86,0.1)",
+    "rgba(247, 146, 86,0.05)"
+],
 
 }
 

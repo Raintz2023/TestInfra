@@ -1,4 +1,4 @@
-#include "Ate.h"   // TODO:RESET
+#include "Ate.h"  
 
 // RAII: Resource acquisition is initialization. 
 // What acquires and uses a resource should be responsible for obtaining it during construction and releasing it upon destruction.
@@ -127,7 +127,7 @@ void ATE::write(uint64_t addr) {
     this->tick();
 }
 
-void ATE::read(uint64_t addr) {   // TODO:
+void ATE::read(uint64_t addr) { 
     this->atep_->W = 0;
     this->atep_->DQ_IN = 0;
 

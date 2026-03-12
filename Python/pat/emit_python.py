@@ -4,15 +4,16 @@ from Python.pat.cls import *
 from typing import Iterable
 
 from Python.pat.ir import *
-def get_label_dict(ir_list:list):    # TODO:重复的label
+def get_label_dict(ir_list:list):    
     key_ctrl_count = 0
     label_dict = {}
     for ins in ir_list:
         if isinstance(ins, CTRL) and not isinstance(ins, NO_CTRL):
             if ins.label != "NO_LABEL":
+                if ins.label in label_dict.keys():
+                    raise LabelError(f"{ins.label} is duplicate, wrong label line number is {key_ctrl_count * 4}.")
                 label_dict[ins.label] = 12 * key_ctrl_count  # The reason for using 12 is that there are 12 valid statements in each CTRL block.
             key_ctrl_count += 1
-
     return label_dict
 
 def split_ir_list(ir_list:list):
@@ -54,7 +55,7 @@ def emit_python(testflow_list:list[Row], ir_list:list, out_path: str | Path, fun
     spliting_ir_list = split_ir_list(ir_list)
     for spliting_ir in spliting_ir_list:
         spliting_label_list.append(get_label_dict(spliting_ir))
-    # print(all_label_list)
+    # print(spliting_label_list)
     # for i in range(len(all_label_list)):
     #     trans_line(lines=lines, ir_list=spliting_ir_list[i], label_dict=all_label_list[i])
 
@@ -71,6 +72,12 @@ def emit_python(testflow_list:list[Row], ir_list:list, out_path: str | Path, fun
 
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
+def ctrl_counter(pc, ctrl_count):
+    if ctrl_count != 0:
+        raise CtrlError(f"{int((pc-1)/3)} line's CTRL block is not conform to the standard (4 Way).")
+    else:
+        ctrl_count += 3
+    return ctrl_count
 
 def trans_line(pc_init:int, lines:list, ir_list:list, label_dict:dict):
     pc = pc_init
@@ -133,7 +140,7 @@ def trans_line(pc_init:int, lines:list, ir_list:list, label_dict:dict):
         elif isinstance(ins, NO_CTRL):
             ctrl_count -= 1
             if ctrl_count < 0:
-                raise Exception("4 Way pattern")
+                raise CtrlError(f"{int((pc-1)/3)} line's CTRL block is not conform to the standard (4 Way).")
             
             if goto_count > 1:
                 goto_count -= 1
@@ -149,34 +156,21 @@ def trans_line(pc_init:int, lines:list, ir_list:list, label_dict:dict):
 
         elif isinstance(ins, NOP):
             indent  = '        ' 
-            if ctrl_count != 0:
-                raise Exception("4 Way pattern")
-            else:
-                ctrl_count += 3
+            ctrl_count = ctrl_counter(pc, ctrl_count)
 
         elif isinstance(ins, RTN):
-            print('RTN')
             indent  = '        ' 
-            if ctrl_count != 0:
-                raise Exception("4 Way pattern")
-            else:
-                ctrl_count += 3
+            ctrl_count = ctrl_counter(pc, ctrl_count)
             rtn_count = 3   # Complete the current RTN block
 
         elif isinstance(ins, FOR):
             indent  = '            '
-            if ctrl_count != 0:
-                raise Exception("4 Way pattern")
-            else:
-                ctrl_count += 3
+            ctrl_count = ctrl_counter(pc, ctrl_count)
             lines.append(f"        for i in range({ins.times}):")
 
         elif isinstance(ins, GOTO):
             indent  = '        '    
-            if ctrl_count != 0:
-                raise Exception("4 Way pattern")
-            else:
-                ctrl_count += 3
+            ctrl_count = ctrl_counter(pc, ctrl_count)
             goto_target = ins.target
             times = ins.times
             if times > 0:
@@ -188,7 +182,7 @@ def trans_line(pc_init:int, lines:list, ir_list:list, label_dict:dict):
             lines.append(f"    # TODO unsupported IR: {ins!r}")
 
     if ctrl_count != 0:
-        raise Exception("4 Way pattern")
+        raise CtrlError(f"{int((pc-1)/3)} line's CTRL block is not conform to the standard (4 Way).")
 
     if cmd_count == 0:
         # 避免空函数语法错误
