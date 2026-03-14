@@ -29,9 +29,9 @@ def main(argv=None):
 
     p = argparse.ArgumentParser()
 
-    p.add_argument("--pat", required=True)
-    p.add_argument("--tfn", required=True, type=int)
-    p.add_argument("--td", required=True, type=int)
+    p.add_argument("--pat", required=True, help="pattern name")
+    p.add_argument("--tfn", required=True, type=int, help="testflow number")
+    p.add_argument("--td", required=True, type=int, help="top data")
     p.add_argument("--xr", required=True, help="x range start:end[:step]")
     p.add_argument("--yr", required=True, help="y range start:end[:step]")
 
