@@ -9,7 +9,7 @@ module Driver (
 
     input  wire       DRIV,       // 1-cycle pulse
     input  wire       DRIV_SHIFT,     //  1: right
-    input  wire [4:0] DRIV_FRONT,  // + 0..31
+    input  wire [4:0] DRIV_FRONT,  // + 0..31 
     input  wire [7:0] DQ_IN,
 
     output reg        DRIV_VALID,

@@ -17,9 +17,9 @@
         "statusBar.debuggingForeground": "#e9e6e6",
         "editor.lineHighlightBackground": "#00000000",
         "editor.lineHighlightBorder": "#00000000"
+
     },
-
-
+    
     "editor.tokenColorCustomizations": {
 
         "comments": "#007777",
@@ -77,8 +77,7 @@
             {
                 "scope": ["meta.label.arrow.pattern"],
                 "settings": { "foreground": "#45b4c3"}
-            }
-
+            },
         ]
         
     },
@@ -89,7 +88,7 @@
 ],
 "[python]": {
     "editor.defaultFormatter": "ms-python.autopep8",
-    "editor.formatOnSave": true
+    "editor.formatOnSave": true,
 },
 
 "python.languageServer": "Pylance",
@@ -116,7 +115,6 @@
 "workbench.editorAssociations": {
     "*.txt": "default"
 },
-"typescript.disableAutomaticTypeAcquisition": true,
 "explorer.confirmDelete": false,
 "animations.Install-Method": "Apc Customize UI++",
 "editor.cursorSmoothCaretAnimation": "on",
@@ -124,7 +122,6 @@
 "workbench.activityBar.location": "top",
 "jupyter.interactiveWindow.textEditor.executeSelection": true,
 "editor.semanticTokenColorCustomizations": {
-
 
 },
 "code-runner.executorMap": {
@@ -257,8 +254,8 @@
 "[verilog]": {
     "editor.defaultFormatter": "teros-technology.teroshdl"
 },
+
 "workbench.startupEditor": "none",
-"window.zoomLevel": 0.75,
 "terminal.integrated.defaultProfile.linux": "fish",
 "bookmarks.gutterIconFillColor": "#c44b93",
 "bookmarks.gutterIconBorderColor": "#c44b93",
@@ -324,9 +321,9 @@
             }
         ]
     },
-    // 高亮时钟和复位信号
-  "(?<![\\w.])(clk|reset|rst_n|rst|clock|ena|enable)": {
-    "filterFileRegex": "\\.v$", // 只对 .v 文件生效
+// 1. 信号名
+  "(?<!//.*)(?<![\\w.])(clk|reset|rst_n|rst|clock|ena|enable)(?!\\w)": {
+    "filterFileRegex": "\\.v$",
     "decorations": [
       {
         "fontWeight": "bold"
@@ -334,10 +331,10 @@
     ]
   },
 
-  // 高亮边沿触发
-  "(?<!\\w)(posedge|negedge)(?!\\w)": {
+  // 2. 高亮边沿触发
+  "(?<!//.*)(?<![\\w.])(posedge|negedge)(?!\\w)": {
     "filterFileRegex": "\\.v$",
-    "decorations": [
+    "decorations":[
       {
         "color": "#FF69B4",
         "fontStyle": "italic"
@@ -345,50 +342,59 @@
     ]
   },
 
-    "(?<!\\w)(input|output|input)(?!\\w)": {
+  // 3. 端口声明 (已修正重复的 input 为 inout)
+  "(?<!//.*)(?<![\\w.])(input|output|inout)(?!\\w)": {
     "filterFileRegex": "\\.v$",
-    "decorations": [
+    "decorations":[
       {
         "color": "#e06c75",
         "fontStyle": "italic"
       }
     ]
   },
-    "(?<!\\w)(reg|wire|and|or|@|xor)(?!\\w)": {
-        "filterFileRegex": "\\.v$",
-        "decorations": [
-        {
-            "color": "#7fbf65",
-            "fontStyle": "italic"
-        }
-        ]
-    },
-    "(?<!\\w)(&&|\\|\\|)(?!\\w)": {
-    "filterFileRegex": "\\.v$",  // 只对 .v 文件生效
-    "decorations": [
+
+  // 4. 数据类型与门级关键字 (分离了 @ 符号的单词边界限制，防止 @posedge 匹配失败)
+  "(?<!//.*)(?:(?<![\\w.])(reg|wire|and|or|xor)(?!\\w)|@)": {
+    "filterFileRegex": "\\.v$",
+    "decorations":[
       {
-        "color": "#7fbf65",       // 绿色
+        "color": "#7fbf65",
+        "fontStyle": "italic"
+      }
+    ]
+  },
+
+  // 5. 逻辑操作符 (移除了边界限制，防止 a&&b 匹配失效)
+  "(?<!//.*)(&&|\\|\\|)": {
+    "filterFileRegex": "\\.v$",
+    "decorations":[
+      {
+        "color": "#7fbf65",
         "fontWeight": "bold"
       }
     ]
   },
-    "(?<!\\w)(genvar|integer|int|real)(?!\\w)": {
-        "filterFileRegex": "\\.v$",
-        "decorations": [
-        {
-            "color": "#4095db",
-            "fontStyle": "italic"
-        }
-        ]
-    },
-    "(?<!\\w)(generate|endgenerate)(?!\\w)": {
-        "filterFileRegex": "\\.v$",
-        "decorations": [
-        {
-            "fontStyle": "italic"
-        }
-        ]
-    }
+
+  // 6. 变量类型
+  "(?<!//.*)(?<![\\w.])(genvar|integer|int|real)(?!\\w)": {
+    "filterFileRegex": "\\.v$",
+    "decorations":[
+      {
+        "color": "#4095db",
+        "fontStyle": "italic"
+      }
+    ]
+  },
+
+  // 7. 生成块
+  "(?<!//.*)(?<![\\w.])(generate|endgenerate)(?!\\w)": {
+    "filterFileRegex": "\\.v$",
+    "decorations": [
+      {
+        "fontStyle": "italic"
+      }
+    ]
+  }
 },
 "peacock.favoriteColors": [
     {
@@ -428,22 +434,25 @@
         "value": "#42b883"
     }
 ],
-"editor.mouseWheelZoom": true,
-"cmake.configureOnOpen": false,
-"C_Cpp.default.cppStandard": "c++20",
-"C_Cpp.default.cStandard": "c17",
-"C_Cpp.intelliSenseEngine": "default",
-"C_Cpp.experimentalFeatures": "enabled",
-"python.analysis.typeCheckingMode": "basic",
-"indentRainbow.colors": [
-    "rgba(29, 78, 137,0.15)",
-    "rgba(58, 178, 202,0.15)",
-    "rgba(125, 207, 182, 0.15)",
-    "rgba(251, 209, 162,0.15)",
-    "rgba(247, 146, 86,0.15)",
-    "rgba(247, 146, 86,0.1)",
-    "rgba(247, 146, 86,0.05)"
-]
+    "editor.mouseWheelZoom": true,
+    "cmake.configureOnOpen": false,
+    "C_Cpp.default.cppStandard": "c++20",
+    "C_Cpp.default.cStandard": "c17",
+    "C_Cpp.intelliSenseEngine": "default",
+    "C_Cpp.experimentalFeatures": "enabled",
+    "python.analysis.typeCheckingMode": "basic",
+    "indentRainbow.colors": [
+        "rgba(29, 78, 137,0.15)",
+        "rgba(58, 178, 202,0.15)",
+        "rgba(125, 207, 182, 0.15)",
+        "rgba(251, 209, 162,0.15)",
+        "rgba(247, 146, 86,0.15)",
+        "rgba(247, 146, 86,0.1)",
+        "rgba(247, 146, 86,0.05)"
+    ],
+    "chatgpt.runCodexInWindowsSubsystemForLinux": true,
+    "http.proxy": "http://127.0.0.1:7890",
+    "https.proxy": "http://127.0.0.1:7890"
 
 }
 

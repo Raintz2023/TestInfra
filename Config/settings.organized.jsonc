@@ -1,0 +1,491 @@
+{
+    // =========================
+    // VS Code 内置设置
+    // =========================
+
+    // 外观与主题
+    "workbench.colorTheme": "One Dark Pro Italic Vivid",
+    "workbench.iconTheme": "material-icon-theme",
+    "workbench.productIconTheme": "material-product-icons",
+    "workbench.activityBar.location": "top",
+    "workbench.panel.showLabels": false,
+    "workbench.startupEditor": "none",
+    "workbench.editorAssociations": {
+        "*.txt": "default"
+    },
+    "workbench.colorCustomizations": {
+        "statusBar.background": "#2f333d",
+        "editorCursor.foreground": "#ffc600",
+        "terminalCursor.foreground": "#ffc600",
+        "statusBar.debuggingBackground": "#005f5f",
+        "statusBar.noFolderBackground": "#005f5f",
+        "statussBar.prominentBackground": "#7C21D7",
+        "statusBar.foreground": "#e9e6e6",
+        "statusBar.debuggingForeground": "#e9e6e6",
+        "editor.lineHighlightBackground": "#00000000",
+        "editor.lineHighlightBorder": "#00000000"
+    },
+
+    // 编辑器通用
+    "editor.fontFamily": "'ComicCode Nerd Font', '悠哉字体 Medium', monospace",
+    "editor.fontSize": 16,
+    "editor.matchBrackets": "never",
+    "editor.cursorBlinking": "smooth",
+    "editor.cursorSmoothCaretAnimation": "on",
+    "editor.mouseWheelZoom": true,
+    "editor.stickyScroll.enabled": false,
+    "editor.minimap.enabled": false,
+    "editor.minimap.sectionHeaderFontSize": 12,
+    "editor.suggest.showSnippets": true,
+    "editor.unicodeHighlight.includeStrings": false,
+    "editor.semanticTokenColorCustomizations": {
+    },
+    "editor.tokenColorCustomizations": {
+        "comments": "#007777",
+        "textMateRules": [
+            {
+                "scope": "variable.parameter.function.language.special.self.python",
+                "settings": {
+                    "foreground": "#e06c75"
+                }
+            },
+            {
+                "scope": ["variable", "variable.other"],
+                "settings": {
+                    "foreground": "#a6b2c0"
+                }
+            },
+            {
+                "scope": ["constant.language.pattern"],
+                "settings": {
+                    "foreground": "#d4995b",
+                    "fontStyle": "underline"
+                }
+            },
+            {
+                "scope": ["constant.numeric.pattern", "constant.numeric.hex.pattern", "constant.numeric.decimal.pattern"],
+                "settings": {
+                    "foreground": "#deae01"
+                }
+            },
+            {
+                "scope": ["entity.name.type.pattern"],
+                "settings": {
+                    "foreground": "#45c364"
+                }
+            },
+            {
+                "scope": ["keyword.operator.arithmetic.pattern", "keyword.operator.assignment.pattern", "keyword.operator.pattern"],
+                "settings": {
+                    "foreground": "#45b4c3"
+                }
+            },
+            {
+                "scope": ["punctuation.terminator.statement.pattern", "punctuation.separator.colon.pattern", "punctuation.separator.pipe.pattern", "punctuation.definition.separator.pattern"],
+                "settings": {
+                    "foreground": "#BBBBBB"
+                }
+            },
+            {
+                "scope": ["keyword.control.pattern"],
+                "settings": {
+                    "foreground": "#D55FDE",
+                    "fontStyle": "italic bold"
+                }
+            },
+            {
+                "scope": ["entity.name.label.pattern"],
+                "settings": {
+                    "foreground": "#52ADF2"
+                }
+            },
+            {
+                "scope": ["punctuation.definition.label.hash.pattern"],
+                "settings": {
+                    "foreground": "#52ADF2"
+                }
+            },
+            {
+                "scope": ["keyword.testflow.pattern"],
+                "settings": {
+                    "foreground": "#e06c75"
+                }
+            },
+            {
+                "scope": ["meta.label.arrow.pattern"],
+                "settings": {
+                    "foreground": "#45b4c3"
+                }
+            },
+        ]
+    },
+
+    // 文件、搜索与资源管理器
+    "files.autoSave": "afterDelay",
+    "files.associations": {
+        "*.txt": "txt",
+        "*.ino": "arduino-output"
+    },
+    "search.followSymlinks": false,
+    "explorer.confirmDelete": false,
+
+    // 终端
+    "terminal.integrated.tabs.location": "left",
+    "terminal.integrated.shellIntegration.enabled": false,
+    "terminal.integrated.defaultProfile.windows": "Windows PowerShell",
+    "terminal.integrated.defaultProfile.linux": "fish",
+    "terminal.integrated.profiles.windows": {
+        "PowerShell": {
+            "source": "PowerShell",
+            "icon": "terminal-powershell"
+        },
+        "Command Prompt": {
+            "path": [
+                "${env:windir}\\Sysnative\\cmd.exe",
+                "${env:windir}\\System32\\cmd.exe"
+            ],
+            "args": [],
+            "icon": "terminal-cmd"
+        },
+        "Git Bash": {
+            "source": "Git Bash"
+        },
+        "MSYS2": {
+            "path": "C:\\msys64\\msys2_shell.cmd",
+            "args": [
+                "-defterm",
+                "-here",
+                "-no-start",
+                "-mingw64"
+            ]
+        },
+        "Windows PowerShell": {
+            "path": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+    },
+
+    // Git / 调试 / 安全 / 网络
+    "git.autofetch": true,
+    "git.terminalAuthentication": false,
+    "debug.console.fontSize": 16,
+    "scm.inputFontSize": 16,
+    "security.workspace.trust.enabled": false,
+    "http.proxy": "http://127.0.0.1:7890",
+    "https.proxy": "http://127.0.0.1:7890",
+
+    // 语言作用域覆盖
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.autopep8",
+        "editor.formatOnSave": true,
+    },
+    "[verilog]": {
+        "editor.defaultFormatter": "teros-technology.teroshdl"
+    },
+
+    // =========================
+    // 插件与扩展设置
+    // =========================
+
+    // APC / Animations / 宏
+    "apc.imports": [
+        "file:///c:/Users/seagull/.vscode/extensions/brandonkirbyson.vscode-animations-2.0.3/dist/updateHandler.js"
+    ],
+    "apc.buttons": [
+    ],
+    "animations.Install-Method": "Apc Customize UI++",
+    "animations.Custom-CSS": false,
+    "animations.Scrolling": "Slide",
+    "animations.CursorAnimationOptions": {
+        "Color": "#ffc600",
+        "TrailLength": 8
+    },
+    "macros": {
+        "copyLine": [
+            // 先选中整行
+            "expandLineSelection",
+            // 复制选中内容
+            "editor.action.clipboardCopyAction",
+            // 取消选中
+            "cancelSelection"
+        ]
+    },
+
+    // Python / Jupyter
+    "python.languageServer": "Pylance",
+    "python.analysis.typeCheckingMode": "basic",
+    "python.terminal.activateEnvironment": false,
+    "jupyter.interactiveWindow.textEditor.executeSelection": true,
+
+    // C / C++
+    "C_Cpp.default.cppStandard": "c++20",
+    "C_Cpp.default.cStandard": "c17",
+    "C_Cpp.intelliSenseEngine": "default",
+    "C_Cpp.experimentalFeatures": "enabled",
+
+    // CMake / Makefile
+    "cmake.pinnedCommands": [
+        "workbench.action.tasks.configureTaskRunner",
+        "workbench.action.tasks.runTask"
+    ],
+    "cmake.enableAutomaticKitScan": false,
+    "cmake.showNotAllDocumentsSavedQuestion": false,
+    "cmake.configureOnOpen": false,
+    "makefile.configureOnOpen": true,
+
+    // Remote SSH
+    "remote.SSH.remotePlatform": {
+        "192.168.0.192": "linux",
+        "192.168.5.11": "linux",
+        "192.168.5.5": "linux"
+    },
+
+    // 代码运行
+    "code-runner.executorMap": {
+        "javascript": "node",
+        "java": "cd $dir && javac $fileName && java $fileNameWithoutExt",
+        "c": "cd $dir && gcc $fileName -o $fileNameWithoutExt && $dir$fileNameWithoutExt",
+        "zig": "zig run",
+        "cpp": "cd $dir && g++ $fileName -o $fileNameWithoutExt && $dir$fileNameWithoutExt",
+        "objective-c": "cd $dir && gcc -framework Cocoa $fileName -o $fileNameWithoutExt && $dir$fileNameWithoutExt",
+        "php": "php",
+        "python": "python -u",
+        "perl": "perl",
+        "perl6": "perl6",
+        "ruby": "ruby",
+        "go": "go run",
+        "lua": "lua",
+        "groovy": "groovy",
+        "powershell": "powershell -ExecutionPolicy ByPass -File",
+        "bat": "cmd /c",
+        "shellscript": "bash",
+        "fsharp": "fsi",
+        "csharp": "scriptcs",
+        "vbscript": "cscript //Nologo",
+        "typescript": "ts-node",
+        "coffeescript": "coffee",
+        "scala": "scala",
+        "swift": "swift",
+        "julia": "julia",
+        "crystal": "crystal",
+        "ocaml": "ocaml",
+        "r": "Rscript",
+        "applescript": "osascript",
+        "clojure": "lein exec",
+        "haxe": "haxe --cwd $dirWithoutTrailingSlash --run $fileNameWithoutExt",
+        "rust": "cd $dir && rustc $fileName && $dir$fileNameWithoutExt",
+        "racket": "racket",
+        "scheme": "csi -script",
+        "ahk": "autohotkey",
+        "autoit": "autoit3",
+        "dart": "dart",
+        "pascal": "cd $dir && fpc $fileName && $dir$fileNameWithoutExt",
+        "d": "cd $dir && dmd $fileName && $dir$fileNameWithoutExt",
+        "haskell": "runghc",
+        "nim": "nim compile --verbosity:0 --hints:off --run",
+        "lisp": "sbcl --script",
+        "kit": "kitc --run",
+        "v": "v run",
+        "sass": "sass --style expanded",
+        "scss": "scss --style expanded",
+        "less": "cd $dir && lessc $fileName $fileNameWithoutExt.css",
+        "FortranFreeForm": "cd $dir && gfortran $fileName -o $fileNameWithoutExt && $dir$fileNameWithoutExt",
+        "fortran-modern": "cd $dir && gfortran $fileName -o $fileNameWithoutExt && $dir$fileNameWithoutExt",
+        "fortran_fixed-form": "cd $dir && gfortran $fileName -o $fileNameWithoutExt && $dir$fileNameWithoutExt",
+        "fortran": "cd $dir && gfortran $fileName -o $fileNameWithoutExt && $dir$fileNameWithoutExt",
+        "sml": "cd $dir && sml $fileName",
+        "mojo": "mojo run",
+        "erlang": "escript",
+        "spwn": "spwn build",
+        "pkl": "cd $dir && pkl eval -f yaml $fileName -o $fileNameWithoutExt.yaml",
+        "gleam": "gleam run -m $fileNameWithoutExt"
+    },
+
+    // Verilog
+    "verilog.linting.linter": "modelsim",
+    "verilog.ctags.path": "C:\\msys64\\mingw64\\bin",
+    "verilog.formatting.iStyleVerilogFormatter.style": "GNU",
+
+    // 书签 / 高亮 / 配色辅助
+    "bookmarks.gutterIconFillColor": "#c44b93",
+    "bookmarks.gutterIconBorderColor": "#c44b93",
+    "highlight.regexes": {
+        "((?:<!-- *)?(?:#|// @|//|./\\*+|<!--|--|\\* @|{!|{{!--|{{!) *TODO(?:\\s*\\([^)]+\\))?:?)((?!\\w)(?: *-->| *\\*/| *!}| *--}}| *}}|(?= *(?:[^:]//|/\\*+|<!--|@|--|{!|{{!--|{{!))|(?: +[^\\n@]*?)(?= *(?:[^:]//|/\\*+|<!--|@|--(?!>)|{!|{{!--|{{!))|(?: +[^@\\n]+)?))": {
+            "filterFileRegex": ".*(?<!CHANGELOG.md)$",
+            "decorations": [
+                {
+                    "overviewRulerColor": "#ffcc00",
+                    "backgroundColor": "#ffcc00",
+                    "color": "#1f1f1f",
+                    "fontWeight": "bold"
+                },
+                {
+                    "backgroundColor": "#ffcc00",
+                    "color": "#1f1f1f"
+                }
+            ]
+        },
+        "((?:<!-- *)?(?:#|// @|//|./\\*+|<!--|--|\\* @|{!|{{!--|{{!) *(?:FIXME|FIX|BUG|UGLY|DEBUG|HACK)(?:\\s*\\([^)]+\\))?:?)((?!\\w)(?: *-->| *\\*/| *!}| *--}}| *}}|(?= *(?:[^:]//|/\\*+|<!--|@|--|{!|{{!--|{{!))|(?: +[^\\n@]*?)(?= *(?:[^:]//|/\\*+|<!--|@|--(?!>)|{!|{{!--|{{!))|(?: +[^@\\n]+)?))": {
+            "filterFileRegex": ".*(?<!CHANGELOG.md)$",
+            "decorations": [
+                {
+                    "overviewRulerColor": "#cc0000",
+                    "backgroundColor": "#cc0000",
+                    "color": "#1f1f1f",
+                    "fontWeight": "bold"
+                },
+                {
+                    "backgroundColor": "#cc0000",
+                    "color": "#1f1f1f"
+                }
+            ]
+        },
+        "((?:<!-- *)?(?:#|// @|//|./\\*+|<!--|--|\\* @|{!|{{!--|{{!) *(?:REVIEW|OPTIMIZE|TSC)(?:\\s*\\([^)]+\\))?:?)((?!\\w)(?: *-->| *\\*/| *!}| *--}}| *}}|(?= *(?:[^:]//|/\\*+|<!--|@|--|{!|{{!--|{{!))|(?: +[^\\n@]*?)(?= *(?:[^:]//|/\\*+|<!--|@|--(?!>)|{!|{{!--|{{!))|(?: +[^@\\n]+)?))": {
+            "filterFileRegex": ".*(?<!CHANGELOG.md)$",
+            "decorations": [
+                {
+                    "overviewRulerColor": "#00ccff",
+                    "backgroundColor": "#00ccff",
+                    "color": "#1f1f1f",
+                    "fontWeight": "bold"
+                },
+                {
+                    "backgroundColor": "#00ccff",
+                    "color": "#1f1f1f"
+                }
+            ]
+        },
+        "((?:<!-- *)?(?:#|// @|//|./\\*+|<!--|--|\\* @|{!|{{!--|{{!) *(?:IDEA)(?:\\s*\\([^)]+\\))?:?)((?!\\w)(?: *-->| *\\*/| *!}| *--}}| *}}|(?= *(?:[^:]//|/\\*+|<!--|@|--|{!|{{!--|{{!))|(?: +[^\\n@]*?)(?= *(?:[^:]//|/\\*+|<!--|@|--(?!>)|{!|{{!--|{{!))|(?: +[^@\\n]+)?))": {
+            "filterFileRegex": ".*(?<!CHANGELOG.md)$",
+            "decorations": [
+                {
+                    "overviewRulerColor": "#cc00cc",
+                    "backgroundColor": "#cc00cc",
+                    "color": "#1f1f1f",
+                    "fontWeight": "bold"
+                },
+                {
+                    "backgroundColor": "#cc00cc",
+                    "color": "#1f1f1f"
+                }
+            ]
+        },
+        // 1. 信号名
+        "(?<!//.*)(?<![\\w.])(clk|reset|rst_n|rst|clock|ena|enable)(?!\\w)": {
+            "filterFileRegex": "\\.v$",
+            "decorations": [
+                {
+                    "fontWeight": "bold"
+                }
+            ]
+        },
+        // 2. 高亮边沿触发
+        "(?<!//.*)(?<![\\w.])(posedge|negedge)(?!\\w)": {
+            "filterFileRegex": "\\.v$",
+            "decorations": [
+                {
+                    "color": "#FF69B4",
+                    "fontStyle": "italic"
+                }
+            ]
+        },
+        // 3. 端口声明
+        "(?<!//.*)(?<![\\w.])(input|output|inout)(?!\\w)": {
+            "filterFileRegex": "\\.v$",
+            "decorations": [
+                {
+                    "color": "#e06c75",
+                    "fontStyle": "italic"
+                }
+            ]
+        },
+        // 4. 数据类型与门级关键字
+        "(?<!//.*)(?:(?<![\\w.])(reg|wire|and|or|xor)(?!\\w)|@)": {
+            "filterFileRegex": "\\.v$",
+            "decorations": [
+                {
+                    "color": "#7fbf65",
+                    "fontStyle": "italic"
+                }
+            ]
+        },
+        // 5. 逻辑操作符
+        "(?<!//.*)(&&|\\|\\|)": {
+            "filterFileRegex": "\\.v$",
+            "decorations": [
+                {
+                    "color": "#7fbf65",
+                    "fontWeight": "bold"
+                }
+            ]
+        },
+        // 6. 变量类型
+        "(?<!//.*)(?<![\\w.])(genvar|integer|int|real)(?!\\w)": {
+            "filterFileRegex": "\\.v$",
+            "decorations": [
+                {
+                    "color": "#4095db",
+                    "fontStyle": "italic"
+                }
+            ]
+        },
+        // 7. 生成块
+        "(?<!//.*)(?<![\\w.])(generate|endgenerate)(?!\\w)": {
+            "filterFileRegex": "\\.v$",
+            "decorations": [
+                {
+                    "fontStyle": "italic"
+                }
+            ]
+        }
+    },
+    "peacock.favoriteColors": [
+        {
+            "name": "Angular Red",
+            "value": "#dd0531"
+        },
+        {
+            "name": "Azure Blue",
+            "value": "#007fff"
+        },
+        {
+            "name": "JavaScript Yellow",
+            "value": "#f9e64f"
+        },
+        {
+            "name": "Mandalorian Blue",
+            "value": "#1857a4"
+        },
+        {
+            "name": "Node Green",
+            "value": "#215732"
+        },
+        {
+            "name": "React Blue",
+            "value": "#61dafb"
+        },
+        {
+            "name": "Something Different",
+            "value": "#832561"
+        },
+        {
+            "name": "Svelte Orange",
+            "value": "#ff3d00"
+        },
+        {
+            "name": "Vue Green",
+            "value": "#42b883"
+        }
+    ],
+    "indentRainbow.colors": [
+        "rgba(29, 78, 137,0.15)",
+        "rgba(58, 178, 202,0.15)",
+        "rgba(125, 207, 182, 0.15)",
+        "rgba(251, 209, 162,0.15)",
+        "rgba(247, 146, 86,0.15)",
+        "rgba(247, 146, 86,0.1)",
+        "rgba(247, 146, 86,0.05)"
+    ],
+
+    // 其他扩展
+    "chatgpt.runCodexInWindowsSubsystemForLinux": true
+}

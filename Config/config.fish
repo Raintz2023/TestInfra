@@ -225,10 +225,36 @@ function cwave --description "Open TestInfra VCD in GTKWave"
     command gtkwave $vcd
 end
 
-function venv
-    pushd $TI >/dev/null
-    source ./.venv/bin/activate.fish
+function venv --description "Activate local Python virtual environment in current directory"
+    set -l venv_dir ./.venv
+    set -l activate_script $venv_dir/bin/activate.fish
+
+    if test -d $venv_dir
+        echo "[venv] Found an existing virtual environment in the current directory: $venv_dir"
+    else
+        echo "[venv] No virtual environment found in the current directory, creating: $venv_dir"
+        command python3 -m venv $venv_dir
+        or begin
+            set -l rc $status
+            echo "[venv] Failed to create virtual environment, python3 -m venv exit code: $rc" >&2
+            return $rc
+        end
+        echo "[venv] Virtual environment created successfully"
+    end
+
+    if not test -f $activate_script
+        echo "[venv] Activation script not found: $activate_script" >&2
+        return 1
+    end
+
+    source $activate_script
     set -l rc $status
-    popd >/dev/null
+
+    if test $rc -eq 0
+        echo "[venv] Activated virtual environment: $venv_dir"
+    else
+        echo "[venv] Failed to activate virtual environment, exit code: $rc" >&2
+    end
+
     return $rc
 end
