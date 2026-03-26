@@ -1,4 +1,5 @@
-from ate import ATE
+# from ate import ATE
+from socket_ate import ATE
 import argparse
 import importlib
 

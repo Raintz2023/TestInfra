@@ -49,7 +49,6 @@ module PinInDriver #(
                     DRIV_ALERT <= 1'b1;
                     DRIV_OUT   <= DRIV_IN;
                 end else begin
-                    $display("Now in DRIV_OFFSET %d", fut_driv);
                     fut_driv[0]    <= 1'b1;
                     fut_driv_in[0] <= DRIV_IN;
                 end

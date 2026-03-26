@@ -1,94 +1,70 @@
-#include "VSocket.h"
-#include "verilated.h"
-#include "verilated_vcd_c.h"
+#include "Ate.h"
+
+#include <cstdint>
 #include <iostream>
+#include <string>
 
-vluint64_t sim_time = 0;
+namespace {
 
-void tick(VSocket* top, VerilatedVcdC* tfp){
-    // Clock control
-    top->CLK = 0;
-    top->eval();
-    if (tfp) {
-        tfp->dump(sim_time++);
-    }
-
-    top->CLK = 1;
-    top->eval();
-    if (tfp) {
-        tfp->dump(sim_time++);
-    }
+void mrw(ATE& ate, uint16_t addr, uint16_t input) {
+    
+    ate.stage_drive_pin(26, 1, 0);
+    ate.stage_drive_field(2, 8, addr, 0);
+    ate.stage_drive_field(18, 8, input, 0);
+    ate.pulse_drive();
+    
 }
 
-
-int main(int argc, char** argv) {
-    Verilated::commandArgs(argc, argv);
-
-    // ⭐ 必须开启 trace
-    Verilated::traceEverOn(true);
-
-    // ⭐ new DUT
-    VSocket* top = new VSocket;
-
-    // ⭐ new 波形对象
-    VerilatedVcdC* tfp = new VerilatedVcdC;
-
-    // ⭐ 绑定 trace
-    top->trace(tfp, 99);
-
-    // ⭐ 打开文件
-    tfp->open("wave.vcd");
-
-    // cycle 0：发脉冲
-    top->DRIV = 1;
-    top->DRIV_IN = 1;
-
-    tick(top, tfp);
-    tick(top, tfp);
-
-    // cycle 1：拉低
-    top->DRIV = 0;
-
-    tick(top, tfp);
-    tick(top, tfp);
-
-    // reset 5 cycles
-    for (int i = 0; i < 10; i++) {
-        tick(top, tfp);
-    }
-
-    top->RST_N = 1;
-
-    std::cout << "RESET DONE\n";
-
-    top->DRIV = 0b1111111111111111;        
-    top->DRIV_IN = 0b1111111111111111;
-    top->DRIV_OFFSET = 0xFEDCBA9876543210;
-
-    tick(top, tfp);
-
-    top->DRIV = 0;
-
-    top->SAMP = 0b1111;
-    top->SAMP_OFFSET = 0x0000;
-
-    for (int i = 0; i < 40; i++) {
-        tick(top, tfp);
-        std::cout << "Cycle " << i
-                  << " SAMP_OUT=" << (int)top->SAMP_OUT
-                  << std::endl;
-    }
-
-    // ⭐ 必须执行 final (Verilator 规范)
-    top->final();
-
-    // ⭐ 必须关闭波形文件，才能将缓冲区的数据写进磁盘
-    if (tfp) {
-        tfp->close();
-        delete tfp;
-    }
-    // 释放 DUT
-    delete top;
+int mrr(ATE& ate, uint16_t addr) {
+    
+    ate.stage_drive_pin(27, 1, 0);
+    ate.stage_drive_field(2, 8, addr, 0);
+    ate.pulse_drive();
     
     return 0;
+}
+
+bool mr_cp(ATE& ate, uint16_t addr, uint16_t input) {
+    const uint8_t expected = input;
+
+    mrw(ate, addr, input);
+
+    ate.tick();
+
+    mrr(ate, addr);
+
+    ate.stage_sample_field(9, 8, 0);
+    // ate.stage_sample_all();
+    ate.pulse_sample();
+
+    const bool pass = ate.compare();
+    if (!pass) {
+        std::cout << "  input=0x" << std::hex << input
+                  << " expected=0x" << static_cast<unsigned>(expected)
+                  << " got=0x" << ate.last_sampled_raw()
+                  << std::dec << '\n';
+    }
+    ate.tick();
+    ate.tick();
+    ate.tick();
+    ate.tick();
+
+    return pass;
+};
+
+}  // namespace
+
+int main() {
+    const std::string wave_name =
+        "/home/seagull/Code/TestInfra/Verilog/wave/dram.vcd";
+
+    ATE ate(wave_name, true, 50);
+    std::cout << ate.get_top_data() << std::endl;
+    if (mr_cp(ate, 0, 50)) {
+        ate.print("pass");
+    }
+    else {
+        ate.print("fail");
+    }
+
 }

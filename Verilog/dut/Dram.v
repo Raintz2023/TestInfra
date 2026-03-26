@@ -4,11 +4,11 @@ module Dram(
     input  wire       R,
     input  wire       W,
     input  wire [7:0] ADDR,
-    input  wire [7:0] DQ_IN_DELAY,
+    input  wire [7:0] DQ_IN,
     input  wire [7:0] MR_IN,
     input  wire       MRW,   
     input  wire       MRR,
-    input  wire       DRIV_VALID,
+    input  wire       DRIV,
 
     output reg        DQ_IE,
     output reg  [7:0] DQ_OUT,
@@ -64,8 +64,8 @@ module Dram(
             // In WL level in-put
             if (pipe_in_valid[mr1_wl - 1]) begin
                 DQ_IE  <= 1'b1;
-                if (DRIV_VALID) begin
-                    array[pipe_in_addr[mr1_wl - 1]] <= DQ_IN_DELAY;
+                if (DRIV) begin
+                    array[pipe_in_addr[mr1_wl - 1]] <= DQ_IN;
                 end
             end
 

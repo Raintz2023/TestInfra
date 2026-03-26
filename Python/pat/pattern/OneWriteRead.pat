@@ -1,6 +1,9 @@
 <1> START -> TEST1 -> STOP 
 <2> START -> TEST2 -> STOP 
 
+// DEF MRW = P26 P2:9 P18:25 
+// DEF WR  = P1  P2:9 
+// DEF DRV = P28 P10:17 P18:25
 
             CTRL        |    REG          :                CMD             ;// This is a comment
             ----------------------------------------------------------------

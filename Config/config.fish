@@ -161,6 +161,27 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
     return 0
 end
 
+function pingen --description "Generate Verilog pin adapters and DUT wrapper from pinmap (TestInfra)"
+    for v in VERILOG TI
+        if not set -q $v
+            echo "pingen: missing env var '$v'" >&2
+            return 2
+        end
+    end
+
+    if test (count $argv) -ne 1
+        echo "Usage: pingen <dut-name>" >&2
+        echo "Example: pingen Dram" >&2
+        return 2
+    end
+
+    pushd $TI >/dev/null
+    command python3 $VERILOG/pin/gen_pin_adapter.py $argv[1]
+    set -l rc $status
+    popd >/dev/null
+    return $rc
+end
+
 alias cate="$CPP/obj_dir/VAte"
 
 function pate
@@ -232,7 +253,13 @@ function venv --description "Activate local Python virtual environment in curren
     if test -d $venv_dir
         echo "[venv] Found an existing virtual environment in the current directory: $venv_dir"
     else
-        echo "[venv] No virtual environment found in the current directory, creating: $venv_dir"
+        read -l -P "[venv] No virtual environment found in the current directory. Create $venv_dir? [y/N] " confirm_create
+        if not string match -rq '^[Yy]$' -- $confirm_create
+            echo "[venv] Virtual environment creation cancelled"
+            return 1
+        end
+
+        echo "[venv] Creating virtual environment: $venv_dir"
         command python3 -m venv $venv_dir
         or begin
             set -l rc $status

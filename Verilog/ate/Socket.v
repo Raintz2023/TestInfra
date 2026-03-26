@@ -1,11 +1,12 @@
 module Socket #(
-    parameter PIN_IN_NUM  = 16,
-    parameter PIN_OUT_NUM = 4,
+    parameter PIN_IN_NUM  = 29,
+    parameter PIN_OUT_NUM = 19,
     parameter DEPTH    = 16,
     parameter OFFSET_W = $clog2(DEPTH)
 )(
     input wire CLK,
     input wire RST_N,
+    input wire [PIN_OUT_NUM-1:0] TOP_DATA,
 
     input  wire [PIN_IN_NUM-1:0] DRIV,
     input  wire [PIN_IN_NUM-1:0] DRIV_IN,
@@ -19,7 +20,9 @@ module Socket #(
 
     output wire [PIN_OUT_NUM-1:0] SAMP_OUT,
     output wire [PIN_OUT_NUM-1:0] SAMP_ALERT,
-    output wire [PIN_OUT_NUM*OFFSET_W-1:0] SAMP_CNTS
+    output wire [PIN_OUT_NUM*OFFSET_W-1:0] SAMP_CNTS,
+    output wire COMPARE_PASS,
+    output wire COMPARE_VALID
 );
     wire [PIN_IN_NUM-1:0] in_wire;
     wire [PIN_OUT_NUM-1:0] out_wire;
@@ -40,10 +43,7 @@ module Socket #(
         .DRIV_CNTS  (DRIV_CNTS)
     );
 
-    Encoder #(
-        .IN_WIDTH (PIN_IN_NUM),
-        .OUT_WIDTH(PIN_OUT_NUM)
-    ) encoder (
+    DUT dut (
         .CLK (CLK),
         .RST_N(RST_N),
 
@@ -67,6 +67,16 @@ module Socket #(
         .SAMP_CNTS  (SAMP_CNTS)
     );
 
-
+    Comparer #(
+        .WIDTH(PIN_OUT_NUM)
+    ) comparer (
+        .CLK         (CLK),
+        .RST_N       (RST_N),
+        .TOP_DATA    (TOP_DATA),
+        .SAMP_OUT    (SAMP_OUT),
+        .SAMP_ALERT  (SAMP_ALERT),
+        .COMPARE_PASS(COMPARE_PASS),
+        .COMPARE_VALID(COMPARE_VALID)
+    );
 
 endmodule
