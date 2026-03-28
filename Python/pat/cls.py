@@ -31,6 +31,11 @@ class CtrlError(PatternError):
         self.msg = "\nPattern CTRL block must be 4 line"
         self.detail = detail
 
+class RtnError(PatternError):
+    def __init__(self, detail):
+        self.msg = "\nPattern end need RTN block"
+        self.detail = detail
+
 class TestflowError(PatternError):
     def __init__(self, detail):
         self.msg = "\nNo testflow in the begining of this pattern"

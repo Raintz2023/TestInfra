@@ -7,13 +7,16 @@ from Python.pat.ir import *
 def get_label_dict(ir_list:list):    
     key_ctrl_count = 0
     label_dict = {}
+    # print(ir_list)
     for ins in ir_list:
+        # print(ins)
         if isinstance(ins, CTRL) and not isinstance(ins, NO_CTRL):
             if ins.label != "NO_LABEL":
                 if ins.label in label_dict.keys():
                     raise LabelError(f"{ins.label} is duplicate, wrong label line number is {key_ctrl_count * 4}.")
                 label_dict[ins.label] = 12 * key_ctrl_count  # The reason for using 12 is that there are 12 valid statements in each CTRL block.
             key_ctrl_count += 1
+    # print(label_dict)
     return label_dict
 
 def split_ir_list(ir_list:list):
@@ -30,7 +33,8 @@ def split_ir_list(ir_list:list):
 
     for i in range(len(pointer_list)-1):
         spliting_ir_list.append(ir_list[pointer_list[i]:pointer_list[i+1]])
-
+    if not spliting_ir_list:
+        raise RtnError("No RTN block in Pattern.")
     return spliting_ir_list
 
 def emit_python(testflow_list:list[Row], ir_list:list, out_path: str | Path, func_name: str = "run") -> None:
@@ -52,7 +56,9 @@ def emit_python(testflow_list:list[Row], ir_list:list, out_path: str | Path, fun
 
     # all_label_list and spliting_ir_list one by one
     spliting_label_list = []
+    # print(ir_list)
     spliting_ir_list = split_ir_list(ir_list)
+    # print(spliting_ir_list)
     for spliting_ir in spliting_ir_list:
         spliting_label_list.append(get_label_dict(spliting_ir))
     # print(spliting_label_list)

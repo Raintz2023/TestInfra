@@ -1,6 +1,8 @@
+<1> START -> TEST1 -> STOP
+
             CTRL        |    REG     :                CMD             ;// This is a comment
             -----------------------------------------------------
-START#      FOR-2       |            :                 ;              ;
+            TEST1#FOR-2 |            :                 ;              ;
                         |            :                 ;              ;
                         |            :                 ;              ;
                         |            :                 ;              ;
@@ -28,7 +30,7 @@ START#      FOR-2       |            :                 ;              ;
                         |            :                 ;              ;
                         |            :                 ;              ;
                         |            :                 ;              ;
-            GOTO-0 STOP |            :                 ;              ;
+            NOP         |            :                 ;              ;
                         |            :                 ;              ;
                         |            :                 ;              ;
                         |            :                 ;              ;
@@ -44,11 +46,15 @@ START#      FOR-2       |            :                 ;              ;
                         |            :                 ; SMP < Y, T   ;
                         |            :                 ; SMP < Y      ;
                         |            :                 ; SMP < Y, T   ;
-            GOTO-4 START|            :                 ;              ;
+            GOTO-1 TEST1|            :                 ;              ;
                         |            :                 ;              ;
                         |            :                 ;              ;
                         |            :                 ;              ;
-STOP#       FOR-6       |            :                 ;              ;
+STP#        FOR-6       |            :                 ;              ;
+                        |            :                 ;              ;
+                        |            :                 ;              ;
+                        |            :                 ;              ;
+            RTN         |            :                 ;              ;
                         |            :                 ;              ;
                         |            :                 ;              ;
                         |            :                 ;              ;
