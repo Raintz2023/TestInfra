@@ -18,6 +18,13 @@ set -gx LD_LIBRARY_PATH /usr/lib64 $LD_LIBRARY_PATH
 # -------- Verilog --------
 set -gx VERILOG $TI/Verilog
 set -gx VERILOG_RTL $VERILOG/rtl
+set -gx VERILOG_ATE $VERILOG/ate
+set -gx VERILOG_DUT $VERILOG/dut
+set -gx VERILOG_PIN $VERILOG/pin
+set -gx VERILOG_PINMAP $VERILOG/pinmap
+set -gx VERILOG_INC $VERILOG/include
+set -gx VERILOG_SRC $VERILOG/src
+set -gx VERILOG_SIM $VERILOG/sim
 
 # -------- C++ --------
 set -gx CPP $TI/C++
@@ -42,31 +49,40 @@ set -gx PYTHONPATH $PYTHON_LIBS $PYTHONPATH
 
 function vbuild --description "Build Verilog sim with Verilator (TestInfra)"
 
-    # 必要环境变量检查
-    for v in VERILOG_RTL CPP_SIM CPP_SRC CPP_INC
+    # Build the Verilator sim directly from the current C++ workspace layout.
+    for v in VERILOG_ATE VERILOG_DUT VERILOG_PIN CPP CPP_INC CPP_SRC CPP_SIM
         if not set -q $v
             echo "vbuild: missing env var '$v' (e.g. set -x $v /path/to/...)" >&2
             return 2
         end
     end
 
-    if not test -d $CPP
-        echo "vbuild: directory not found: $CPP" >&2
-        return 2
+    for d in $VERILOG_ATE $VERILOG_DUT $VERILOG_PIN $CPP $CPP_INC $CPP_SRC $CPP_SIM
+        if not test -d $d
+            echo "vbuild: directory not found: $d" >&2
+            return 2
+        end
     end
 
     pushd $CPP >/dev/null
 
     command verilator -Wall --cc \
-        $VERILOG_RTL/Ate.v \
-        $VERILOG_RTL/Dram.v \
-        $VERILOG_RTL/Sampler.v \
-        $VERILOG_RTL/Driver.v \
-        $VERILOG_RTL/Out_Register.v \
+        $VERILOG_ATE/Socket.v \
+        $VERILOG_ATE/DUT.v \
+        $VERILOG_PIN/PinIn.v \
+        $VERILOG_PIN/PinOut.v \
+        $VERILOG_PIN/PinInAdapter.v \
+        $VERILOG_PIN/PinOutAdapter.v \
+        $VERILOG_PIN/Comparer.v \
+        $VERILOG_DUT/*.v \
+        $VERILOG_PIN/PinInDriver.v \
+        $VERILOG_PIN/PinInRegister.v \
+        $VERILOG_PIN/PinOutSampler.v \
+        $VERILOG_PIN/PinOutRegister.v \
         --exe $CPP_SIM/main.cpp $CPP_SRC/Ate.cpp \
         --trace --trace-max-array 256 --trace-max-width 256 \
         --build \
-        --top-module Ate \
+        --top-module Socket \
         -CFLAGS "-std=c++20 -I$CPP_INC -fPIC"
 
     set -l rc $status
@@ -176,13 +192,13 @@ function pingen --description "Generate Verilog pin adapters and DUT wrapper fro
     end
 
     pushd $TI >/dev/null
-    command python3 $VERILOG/pin/gen_pin_adapter.py $argv[1]
+    command python3 $VERILOG/script/gen_pin_adapter.py $argv[1]
     set -l rc $status
     popd >/dev/null
     return $rc
 end
 
-alias cate="$CPP/obj_dir/VAte"
+alias cate="$CPP/obj_dir/VSocket"
 
 function pate
     pushd $TI >/dev/null

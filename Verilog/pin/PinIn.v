@@ -46,7 +46,6 @@ for (i = 0; i < PIN_NUM; i = i + 1) begin : PIN
     PinInRegister reg_inst (
         .CLK(CLK),
         .RST_N(RST_N),
-        .DRIV_OUT(driv_out_i),
         .DRIV_ALERT(alert_i),
         .DRIV_CNTS(cnt_i)
     );
@@ -60,4 +59,3 @@ end
 endgenerate
 
 endmodule
-

@@ -116,7 +116,7 @@
                 "settings": {
                     "foreground": "#45b4c3"
                 }
-            },
+            }
         ]
     },
 
@@ -176,7 +176,7 @@
     // 语言作用域覆盖
     "[python]": {
         "editor.defaultFormatter": "ms-python.autopep8",
-        "editor.formatOnSave": true,
+        "editor.formatOnSave": true
     },
     "[verilog]": {
         "editor.defaultFormatter": "teros-technology.teroshdl"

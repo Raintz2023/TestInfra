@@ -1,5 +1,5 @@
 # from ate import ATE
-from socket_ate import ATE
+from ate import ATE
 import argparse
 import importlib
 
@@ -58,7 +58,7 @@ def main(argv=None):
 
             run(ate, args.tfn, x, y)
 
-            ate.compare()
+            ate.print_compare_results()
 
         print()
 

@@ -16,7 +16,7 @@ module Comparer #(
             COMPARE_VALID <= 1'b0;
         end else begin
             if (|SAMP_ALERT) begin
-                COMPARE_PASS  <= (SAMP_OUT == TOP_DATA);
+                COMPARE_PASS  <= ((SAMP_OUT & SAMP_ALERT) == (TOP_DATA & SAMP_ALERT));
                 COMPARE_VALID <= 1'b1;
             end
         end

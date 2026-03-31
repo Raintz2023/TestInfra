@@ -1,65 +1,48 @@
 #include "Ate.h"
 
-int main(int argc, char** argv) {
+#include <cstdint>
+#include <iostream>
+#include <string>
 
-    for (int y = -10; y <= 10; y++) {
-        for (int x = 0; x <= 10; x++) {
-            auto wave_name = std::format("/root/Code/TestInfra/C++/wave/wave_{}_{}.vcd", x, y);  
+namespace {
 
-            uint8_t top_data = 0xF0;
-            uint64_t addr;
+void mrw(ATE& ate, uint16_t addr, uint16_t input) {
+    
+    ate.stage_drive_pin(26, 1, 0);
+    ate.stage_drive_field(2, 8, addr, 0);
+    ate.stage_drive_field(18, 8, input, 0);
+    ate.pulse_drive();
+    
+}
 
-            ATE ate{wave_name, true, top_data};
-
-            ate.mr_write(0, 56);
-            ate.mr_write(1, 54);
-
-            for (int j = 0; j < 10; j++) {
-                ate.tick();
-            }
-            
-            addr = 0;
-            ate.write(addr);
-
-            for (int j = 0; j < 40; j++) {
-                ate.tick();
-            }
-
-            ate.drive(x, false);
-            ate.drive(x, true);
-            ate.drive(x, false);
-            ate.drive(x, true);
-
-            for (int j = 0; j < 10; j++) {
-                ate.tick();
-            }
-
-            addr = 0;
-            ate.read(addr);
-
-            for (int j = 0; j < 50; j++) {
-                ate.tick();
-            }
-
-            ate.sample(y, false);
-            ate.sample(y, true);
-            ate.sample(y, false);
-            ate.sample(y, true);
-
-            for (int j = 0; j < 50; j++) {
-                ate.tick();
-            }
-
-            ate.compare();
-
-            for (int j = 0; j < 10; j++) {
-                ate.tick();
-            }
-        }
-        printf("\n");
-    }
-    printf("\n");
-
-
+int mrr(ATE& ate, uint16_t addr) {
+    
+    ate.stage_drive_pin(27, 1, 0);
+    ate.stage_drive_field(2, 8, addr, 0);
+    ate.pulse_drive();
+    
     return 0;
+}
+
+}  // namespace
+
+int main() {
+    const std::string wave_name =
+        "/Users/lichenyu/Code/TestInfra/C++/wave/dram.vcd";
+
+    ATE ate(wave_name, true, 0);
+    std::cout << ate.get_top_data() << std::endl;
+
+    for (int y = 0; y < 100; y++) {
+        mrw(ate, 0, 60);
+        mrr(ate, 0);
+        for (int x =0; x < y; x++) {
+            ate.tick();
+        }
+        ate.compare(CompareSpec::field(9, 8, 0));
+        ate.print_compare_results();
+        ate.clear_compare_results();
+        ate.reset();
+    }
+
 }

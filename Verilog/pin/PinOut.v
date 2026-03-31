@@ -46,7 +46,6 @@ for (i = 0; i < PIN_NUM; i = i + 1) begin : PIN
     PinOutRegister reg_inst (
         .CLK(CLK),
         .RST_N(RST_N),
-        .SAMP_OUT(samp_out_i),
         .SAMP_ALERT(alert_i),
         .SAMP_CNTS(cnt_i)
     );
@@ -60,4 +59,3 @@ end
 endgenerate
 
 endmodule
-
