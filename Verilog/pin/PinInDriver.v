@@ -1,6 +1,6 @@
 module PinInDriver #(
     parameter WIDTH = 1,
-    parameter DEPTH = 16,
+    parameter DEPTH = 32,
     parameter OFFSET_W = $clog2(DEPTH)
 )(
     input  wire               CLK,
@@ -14,50 +14,47 @@ module PinInDriver #(
     output reg                DRIV_ALERT
 );
 
-    reg [WIDTH-1:0] fut_driv_in [0:DEPTH-1];
-    reg             fut_driv    [0:DEPTH-1];
-
-    integer i;
+    reg [WIDTH-1:0] pending_driv_in;
+    reg [OFFSET_W-1:0] pending_cycles;
+    reg pending_driv;
 
     always @(posedge CLK or negedge RST_N) begin
         if (!RST_N) begin
             DRIV_ALERT <= 1'b0;
             DRIV_OUT   <= {WIDTH{1'b0}};
-
-            for (i=0; i<DEPTH; i=i+1) begin
-                fut_driv_in[i] <= {WIDTH{1'b0}};
-                fut_driv[i]    <= 1'b0;
-            end
+            pending_driv <= 1'b0;
+            pending_driv_in <= {WIDTH{1'b0}};
+            pending_cycles <= {OFFSET_W{1'b0}};
 
         end else begin
 
             DRIV_ALERT <= 1'b0;
             DRIV_OUT   <= {WIDTH{1'b0}};
 
-            // shift pipeline
-            for (i=DEPTH-1; i>0; i=i-1) begin
-                fut_driv_in[i] <= fut_driv_in[i-1];
-                fut_driv[i]    <= fut_driv[i-1];
+            if (pending_driv) begin
+                if (pending_cycles == {{(OFFSET_W-1){1'b0}}, 1'b1}) begin
+                    DRIV_ALERT <= 1'b1;
+                    DRIV_OUT   <= pending_driv_in;
+                    pending_driv <= 1'b0;
+                    pending_driv_in <= {WIDTH{1'b0}};
+                    pending_cycles <= {OFFSET_W{1'b0}};
+                end else begin
+                    pending_cycles <= pending_cycles - {{(OFFSET_W-1){1'b0}}, 1'b1};
+                end
             end
 
-            fut_driv_in[0] <= {WIDTH{1'b0}};
-            fut_driv[0]    <= 1'b0;
-
-            // record event
+            // Keep one delayed event in flight per pin. This matches current
+            // protocol usage and avoids simulator sensitivity around array
+            // indexing on delayed queues.
             if (DRIV) begin
                 if (DRIV_OFFSET == {OFFSET_W{1'b0}}) begin
                     DRIV_ALERT <= 1'b1;
                     DRIV_OUT   <= DRIV_IN;
                 end else begin
-                    fut_driv[0]    <= 1'b1;
-                    fut_driv_in[0] <= DRIV_IN;
+                    pending_driv <= 1'b1;
+                    pending_driv_in <= DRIV_IN;
+                    pending_cycles <= DRIV_OFFSET;
                 end
-            end
-
-            // delayed output
-            if ((DRIV_OFFSET != {OFFSET_W{1'b0}}) && fut_driv[DRIV_OFFSET-1]) begin
-                DRIV_ALERT <= 1'b1;
-                DRIV_OUT   <= fut_driv_in[DRIV_OFFSET-1];
             end
         end
     end

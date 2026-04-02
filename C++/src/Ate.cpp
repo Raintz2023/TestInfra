@@ -234,6 +234,10 @@ bool ATE::compare(const CompareSpec& spec) {
     for (uint32_t i = 1; i < spec.delay; ++i) {
         tick();
     }
+    // PinOutSampler and Comparer both update on posedge. The sampler asserts
+    // SAMP_ALERT/SAMP_OUT first, and the comparer consumes them on the next
+    // clock, so keep the aligned TOP_DATA visible for one extra cycle.
+    tick();
     socketp_->TOP_DATA = saved_top_data;
 
     const bool pass = current_compare_valid() && current_compare_pass();

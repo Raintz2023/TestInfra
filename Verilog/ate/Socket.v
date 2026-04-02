@@ -1,7 +1,7 @@
 module Socket #(
     parameter PIN_IN_NUM  = 29,
     parameter PIN_OUT_NUM = 19,
-    parameter DEPTH    = 16,
+    parameter DEPTH    = 32,
     parameter OFFSET_W = $clog2(DEPTH)
 )(
     input wire CLK,

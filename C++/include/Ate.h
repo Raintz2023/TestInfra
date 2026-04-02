@@ -70,7 +70,9 @@ class ATE {
 public:
     // Basic socket geometry exposed to wrappers so customer-level protocols
     // can build on top of the generic ATE primitives.
-    static constexpr int kOffsetWidth = 4;
+    // Keep this aligned with Verilog Socket.v OFFSET_W = $clog2(DEPTH).
+    // The default DEPTH is 32, so each pin's drive/sample offset field is 5 bits.
+    static constexpr int kOffsetWidth = 5;
     static constexpr int kMaxOffset = (1 << kOffsetWidth) - 1;
     static constexpr int kPinInCount = 29;
     static constexpr int kPinOutCount = 19;

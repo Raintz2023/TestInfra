@@ -1,7 +1,7 @@
 module PinOut #(
     parameter PIN_NUM  = 64,
     parameter WIDTH    = 1,
-    parameter DEPTH    = 16,
+    parameter DEPTH    = 32,
     parameter OFFSET_W = $clog2(DEPTH)
 )(
     input wire CLK,

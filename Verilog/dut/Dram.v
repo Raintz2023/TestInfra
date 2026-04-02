@@ -28,7 +28,8 @@ module Dram(
 
     reg [7:0] pipe_dq_oe;             // DQ_OE pipeline be used to indicate that the data out-put is valid
     reg [7:0] pipe_mr_oe;             // MR_OUT lifetime pipeline
-
+    reg [3:0] driv_gate_timer;        // 8-cycle write gate opened by DRIV
+    reg [7:0] driv_data_latch;        // Hold DRIV-captured data while gate is open
     integer i;
 
     always @(posedge CLK or negedge RST_N) begin
@@ -54,10 +55,17 @@ module Dram(
 
             pipe_dq_oe <= 8'd0;
             pipe_mr_oe <= 8'd0;
-
+            driv_gate_timer <= 4'd0;
+            driv_data_latch <= 8'd0;
         end else begin
             DQ_OE <= 1'b0;
             DQ_IE <= 1'b0;
+            if (DRIV) begin
+                driv_gate_timer <= 4'd8;
+                driv_data_latch <= DQ_IN;
+            end else if (driv_gate_timer != 4'd0) begin
+                driv_gate_timer <= driv_gate_timer - 4'd1;
+            end
             //  ########################### WRITE ######################
             // In-put pipeline shift left 
             for (i=255; i>0; i=i-1) begin
@@ -67,11 +75,13 @@ module Dram(
             // Level 0 loads new request W = 1
             pipe_in_valid[0] <= W;
             pipe_in_addr[0] <= ADDR;
-            // In WL level in-put
-            if (pipe_in_valid[mr1_wl - 1]) begin
+            // PinInDriver updates DRIV/DQ_IN on the same posedge that this DUT
+            // evaluates, so the DUT observes those pulses one clock later.
+            // Align the write window to that visible cycle.
+            if (pipe_in_valid[mr1_wl]) begin
                 DQ_IE  <= 1'b1;
-                if (DRIV) begin
-                    array[pipe_in_addr[mr1_wl - 1]] <= DQ_IN;
+                if (driv_gate_timer != 4'd0) begin
+                    array[pipe_in_addr[mr1_wl]] <= driv_data_latch;
                 end
             end
 
@@ -86,9 +96,11 @@ module Dram(
             // Level 0 loads new request R = 1
             pipe_out_valid[0] <= R;
             pipe_out_data[0]  <= array[ADDR];
-            // In RL level out-put
-            if (pipe_out_valid[mr0_rl - 1]) begin
-                DQ_OUT <= pipe_out_data[mr0_rl - 1];
+            // PinInDriver makes the read command visible to the DUT one clock
+            // after the tester-side pulse, so the read-return window must align
+            // to that observed cycle as well.
+            if (pipe_out_valid[mr0_rl]) begin
+                DQ_OUT <= pipe_out_data[mr0_rl];
                 DQ_OE  <= 1'b1;
             end
             //  #######################################################
@@ -106,8 +118,8 @@ module Dram(
             end else begin
                 pipe_mr_data[0] <= 8'd0;
             end
-            if (pipe_mr_valid[mr0_rl - 1]) begin
-                MR_OUT <= pipe_mr_data[mr0_rl - 1];
+            if (pipe_mr_valid[mr0_rl]) begin
+                MR_OUT <= pipe_mr_data[mr0_rl];
             end
             //  #######################################################
 
@@ -124,7 +136,7 @@ module Dram(
             end
 
             // MR_OUT follows the same visible lifetime behavior as DQ_OUT.
-            pipe_mr_oe <= {pipe_mr_oe[6:0], pipe_mr_valid[mr0_rl - 1]};
+            pipe_mr_oe <= {pipe_mr_oe[6:0], pipe_mr_valid[mr0_rl]};
             if (pipe_mr_oe == 8'b10000000) begin
                 MR_OUT <= 8'd0;
             end

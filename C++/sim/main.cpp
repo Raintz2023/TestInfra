@@ -6,19 +6,19 @@
 
 namespace {
 
-void mrw(ATE& ate, uint16_t addr, uint16_t input) {
+void mrw(ATE& ate, uint16_t addr, uint16_t input, int delay) {
     
-    ate.stage_drive_pin(26, 1, 0);
-    ate.stage_drive_field(2, 8, addr, 0);
-    ate.stage_drive_field(18, 8, input, 0);
+    ate.stage_drive_pin(26, 1, delay);
+    ate.stage_drive_field(2, 8, addr, delay);
+    ate.stage_drive_field(18, 8, input, delay);
     ate.pulse_drive();
     
 }
 
-int mrr(ATE& ate, uint16_t addr) {
+int mrr(ATE& ate, uint16_t addr, int delay) {
     
-    ate.stage_drive_pin(27, 1, 0);
-    ate.stage_drive_field(2, 8, addr, 0);
+    ate.stage_drive_pin(27, 1, delay);
+    ate.stage_drive_field(2, 8, addr, delay);
     ate.pulse_drive();
     
     return 0;
@@ -28,14 +28,14 @@ int mrr(ATE& ate, uint16_t addr) {
 
 int main() {
     const std::string wave_name =
-        "/Users/lichenyu/Code/TestInfra/C++/wave/dram.vcd";
+        "/home/seagull/Code/TestInfra/C++/wave/dram.vcd";
 
-    ATE ate(wave_name, true, 0);
+    ATE ate(wave_name, true, 60);
     std::cout << ate.get_top_data() << std::endl;
 
     for (int y = 0; y < 100; y++) {
-        mrw(ate, 0, 60);
-        mrr(ate, 0);
+        mrw(ate, 0, 60, 10);
+        mrr(ate, 0, 10);
         for (int x =0; x < y; x++) {
             ate.tick();
         }
