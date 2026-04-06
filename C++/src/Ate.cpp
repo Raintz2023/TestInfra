@@ -100,7 +100,6 @@ ATE::ATE(std::string wave_name, bool trace_enable, uint32_t top_data_init)
 
     socketp_->CLK = 0;
     socketp_->RST_N = 0;
-    socketp_->TOP_DATA = top_data_ & kCompareMask;
     clear_driv_();
     clear_samp_();
 
@@ -132,6 +131,7 @@ void ATE::init_reset_sequence_() {
 
     clear_captured_samples();
     clear_compare_results();
+    pending_compare_specs_.clear();
     cycle_ = 0;
 }
 
@@ -150,6 +150,7 @@ void ATE::reset() {
 
     clear_captured_samples();
     clear_compare_results();
+    pending_compare_specs_.clear();
     cycle_ = 0;
 }
 
@@ -207,18 +208,16 @@ void ATE::pulse_drive() {
     pulse_driv_();
 }
 
-bool ATE::compare() {
-    return compare(CompareSpec{});
+void ATE::sample() {
+    sample(CompareSpec{});
 }
 
-// Run one compare operation through the hardware sampler and comparer, then record the result.
-bool ATE::compare(const CompareSpec& spec) {
+// Run one sample operation through the hardware sampler. Delay belongs here.
+void ATE::sample(const CompareSpec& spec) {
     validate_compare_spec_(spec);
 
-    const uint32_t saved_top_data = socketp_->TOP_DATA;
-    pending_compare_spec_ = spec;
-    socketp_->TOP_DATA = aligned_compare_value_(spec);
-    clear_sample();
+    pending_compare_specs_.push_back(spec);
+    clear_samp_();
     switch (spec.mode) {
     case CompareSpec::Mode::AllPins:
         enable_all_samples_(spec.delay);
@@ -231,28 +230,43 @@ bool ATE::compare(const CompareSpec& spec) {
         break;
     }
     pulse_samp_();
-    for (uint32_t i = 1; i < spec.delay; ++i) {
-        tick();
-    }
-    // PinOutSampler and Comparer both update on posedge. The sampler asserts
-    // SAMP_ALERT/SAMP_OUT first, and the comparer consumes them on the next
-    // clock, so keep the aligned TOP_DATA visible for one extra cycle.
-    tick();
-    socketp_->TOP_DATA = saved_top_data;
+}
 
-    const bool pass = current_compare_valid() && current_compare_pass();
+bool ATE::compare_last() {
+    if (!has_captured_samples()) {
+        compare_results_.push_back(0U);
+        return false;
+    }
+
+    const bool pass = sample_matches_(captured_samples_.back());
     compare_results_.push_back(pass ? 1U : 0U);
     return pass;
+}
+
+bool ATE::compare_all() {
+    if (!has_captured_samples()) {
+        compare_results_.push_back(0U);
+        return false;
+    }
+
+    bool all_pass = true;
+    for (const auto& sample : captured_samples_) {
+        const bool pass = sample_matches_(sample);
+        compare_results_.push_back(pass ? 1U : 0U);
+        if (!pass) {
+            all_pass = false;
+        }
+    }
+    return all_pass;
 }
 
 // Public helper for updating the compare reference data presented to Comparer.
 void ATE::set_top_data(uint32_t data) {
     top_data_ = data & kCompareMask;
-    socketp_->TOP_DATA = top_data_;
 }
 
 uint32_t ATE::get_top_data() {
-    return socketp_->TOP_DATA;
+    return top_data_;
 }
 
 // Public raw view of which input pins generated a drive event on the current cycle.
@@ -312,16 +326,6 @@ uint32_t ATE::current_output_raw() const {
     return socketp_->SAMP_OUT;
 }
 
-// Public raw view of the latest hardware compare result.
-bool ATE::current_compare_pass() const {
-    return socketp_->COMPARE_PASS != 0;
-}
-
-// Public raw view of whether the latest compare result is valid.
-bool ATE::current_compare_valid() const {
-    return socketp_->COMPARE_VALID != 0;
-}
-
 // Public helper for wrapper code that only wants raw sample values.
 std::vector<uint32_t> ATE::captured_raw_outputs() const {
     std::vector<uint32_t> values;
@@ -354,6 +358,19 @@ bool ATE::last_compare_result() const {
     return compare_results_.back() != 0U;
 }
 
+bool ATE::all_compare_results_pass() const {
+    if (!has_compare_results()) {
+        return false;
+    }
+
+    for (uint8_t result : compare_results_) {
+        if (result == 0U) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void ATE::clear_compare_results() {
     compare_results_.clear();
 }
@@ -363,6 +380,10 @@ void ATE::print_compare_results() const {
         std::cout << (result != 0U ? "*" : ".");
     }
     std::cout << std::flush;
+}
+
+void ATE::print_compare_results_and() const {
+    std::cout << (all_compare_results_pass() ? "*" : ".") << std::flush;
 }
 
 // Public decoder helper for customer wrappers.
@@ -487,11 +508,17 @@ void ATE::capture_sample_if_ready_() {
         return;
     }
 
+    CompareSpec captured_spec{};
+    if (!pending_compare_specs_.empty()) {
+        captured_spec = pending_compare_specs_.front();
+        pending_compare_specs_.pop_front();
+    }
+
     last_sample_.cycle = cycle_;
     last_sample_.sample_mask = socketp_->SAMP_ALERT;
     last_sample_.raw = socketp_->SAMP_OUT;
-    last_sample_.top_data_snapshot = socketp_->TOP_DATA;
-    last_sample_.compare_spec = pending_compare_spec_;
+    last_sample_.top_data_snapshot = aligned_compare_value_(captured_spec);
+    last_sample_.compare_spec = captured_spec;
     captured_samples_.push_back(last_sample_);
 }
 
@@ -626,13 +653,17 @@ PYBIND11_MODULE(ate, m) {
              py::arg("value"),
              py::arg("delay") = 0)
         .def("pulse_drive", &ATE::pulse_drive)
-        .def("compare", py::overload_cast<>(&ATE::compare))
-        .def("compare", py::overload_cast<const CompareSpec&>(&ATE::compare), py::arg("spec"))
+        .def("sample", py::overload_cast<>(&ATE::sample))
+        .def("sample", py::overload_cast<const CompareSpec&>(&ATE::sample), py::arg("spec"))
+        .def("compare_last", &ATE::compare_last)
+        .def("compare_all", &ATE::compare_all)
         .def("compare_results", &ATE::compare_results)
         .def("has_compare_results", &ATE::has_compare_results)
         .def("last_compare_result", &ATE::last_compare_result)
+        .def("all_compare_results_pass", &ATE::all_compare_results_pass)
         .def("clear_compare_results", &ATE::clear_compare_results)
         .def("print_compare_results", &ATE::print_compare_results)
+        .def("print_compare_results_and", &ATE::print_compare_results_and)
         .def("clock", &ATE::clock)
         .def("cycle", &ATE::cycle)
         .def("current_drive_alert_raw", &ATE::current_drive_alert_raw)
@@ -644,8 +675,6 @@ PYBIND11_MODULE(ate, m) {
         .def("drive_counts", &ATE::drive_counts)
         .def("sample_counts", &ATE::sample_counts)
         .def("current_output_raw", &ATE::current_output_raw)
-        .def("current_compare_pass", &ATE::current_compare_pass)
-        .def("current_compare_valid", &ATE::current_compare_valid)
         .def("last_sampled_raw", &ATE::last_sampled_raw)
         .def("last_sampled_record", &ATE::last_sampled_record)
         .def("captured_samples", &ATE::captured_samples)

@@ -9,6 +9,11 @@ _CMD_PARSER = Lark(
     parser="lalr"
 )
 
+_DEF_PARSER = Lark(
+    (GRAMMAR_DIR / "def_grammar.lark").read_text(encoding="utf-8"),
+    parser="lalr"
+)
+
 _REG_PARSER = Lark(
     (GRAMMAR_DIR / "reg_grammar.lark").read_text(encoding="utf-8"),
     parser="lalr"
@@ -21,6 +26,9 @@ _CTRL_PARSER = Lark(
 
 def parse_cmd(cmd_text: str):
     return _CMD_PARSER.parse(cmd_text)
+
+def parse_def(def_text: str):
+    return _DEF_PARSER.parse(def_text)
 
 def parse_reg(reg_text: str):
     return _REG_PARSER.parse(reg_text)

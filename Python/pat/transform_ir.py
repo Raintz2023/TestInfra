@@ -3,7 +3,7 @@ from lark import Transformer, v_args, tree
 from Python.pat.ir import *
 from Python.pat.cls import *
 from Python.pat.pat_reader import read_pat
-from Python.pat.parser import parse_cmd, parse_reg, parse_ctrl
+from Python.pat.parser import parse_cmd, parse_reg, parse_ctrl, parse_def
 from Python.pat.tools import _cmd_texts_from_row, _reg_texts_from_row
 
 tree.Tree
@@ -28,63 +28,63 @@ class CtrlToIR(Transformer):
 @v_args(inline=True)
 class CmdToIR(Transformer):
     def add(self, a, b): return f"{a} + {b}"
-
-    def mrw_args(self, addr, data):
-        return (addr, data)
-
-    # def wr_rd_args(self, addr):
-    #     return addr
-
-    def drv_smp_args(self, value, flag=None):
-        return (value, flag)
-
-    def addr_expr(self, offset=None):
-        # grammar: "ADDR" ("+" term)?
-        if offset is None:
-            return "ADDR"
-        return f"ADDR + {offset}"
-
-    def INT(self, t): return int(t)
-    def BOOL(self, b): return b.value
-    def REG(self, r): return r.value
-    def OP(self, o): return o.value
+    def int_lit(self, t): return int(t)
+    def hex_lit(self, t): return int(str(t), 16)
+    def var(self, t): return t if isinstance(t, str) else t.value
+    def NAME(self, t): return t.value
+    def DIRECTION(self, t): return t.value
     def reset(self): return RST()
+    def compare_all(self): return CPA()
+    def compare_last(self): return CPL()
+    def clear_compare(self): return CCR()
 
-    def cmd(self, op, args):
-        # "MRW" / "WR" / "RD" / ...
-        if op == "MRW":
-            addr, data = args
-            return MRW(addr, data)
+    def cmd_args(self, *args):
+        return list(args)
 
-        elif op == "WR":
-            addr = args
-            return WR(addr)
-
-        elif op == "RD":
-            addr = args
-            return RD(addr)
-
-        elif op == "DRV":
-            value, flag = args
-            return DRV(value, flag)
-
-        elif op == "SMP":
-            value, flag = args
-            return SMP(value, flag)
-
+    def cmd(self, name, direction, args=None):
+        if args is None:
+            arg_list = []
+        elif isinstance(args, list):
+            arg_list = args
         else:
-            raise ValueError(f"Unknown op {op}")
+            arg_list = [args]
+        return CmdCall(name=name, direction=direction, args=arg_list)
+
+
+@v_args(inline=True)
+class DefToIR(Transformer):
+    def NAME(self, t): return t.value
+    def INT(self, t): return int(t)
+
+    def enable_role(self, pin):
+        return DefRole("E", start=int(pin))
+
+    def input_role(self, start, end):
+        return DefRole("I", start=int(start), end=int(end))
+
+    def output_role(self, start, end):
+        return DefRole("O", start=int(start), end=int(end))
+
+    def exp_role(self):
+        return DefRole("EXP")
+
+    def dly_role(self):
+        return DefRole("DLY")
+
+    def def_stmt(self, name, *roles):
+        return DefCmd(name=name, roles=list(roles))
 
 
 @v_args(inline=True)
 class RegToIR(Transformer):
 
     def int_lit(self, t): return int(t)
+    def hex_lit(self, t): return int(str(t), 16)
     def var(self, t): return t.value
 
     def assign(self, name, value):
         if isinstance(value, str):
-            if name.value not in value:
+            if name.value not in value and "TEMP" not in value:
                 raise Exception(
                     f"{name.value} assignment is only allowed in using int, {name.value} and TEMP")
         return ASSIGN(name=name.value, value=value)
@@ -150,19 +150,21 @@ def trans_pat(pat_path: str):
         _type_: testflow_list[Row(testflow)], ir_list[Row(ir)]
     """
     testflow_list = []
+    def_list = []
     ir_list = []
-    rows = read_pat(pat_path=pat_path)
+    raw_pat = read_pat(pat_path=pat_path)
 
-    for row in rows:
-        if row is None:
-            continue
-        if row.ctrl != "TESTFLOW":
-            r = row_to_ir(row)
-            ir_list.extend(r)
-        else:
-            testflow_list.append(row)
+    for def_line in raw_pat.def_lines:
+        tree = parse_def(def_line)
+        def_list.append(DefToIR().transform(tree))
+
+    for row in raw_pat.rows:
+        r = row_to_ir(row)
+        ir_list.extend(r)
+
+    testflow_list.extend(raw_pat.testflows)
 
     if not testflow_list:
         raise TestflowError(f"{pat_path} has not testflow.")  ##
-    
-    return testflow_list, ir_list
+
+    return testflow_list, def_list, ir_list

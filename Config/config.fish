@@ -10,7 +10,19 @@ end
 
 ############################BUILD############################
 # -------- Project --------
-set -gx TI /home/seagull/Code/TestInfra
+if test "$_ti_os" = "Darwin"
+    set -gx TI $_ti_root_mac
+else if test "$_ti_os" = "Linux"
+    if test -r /proc/version; and string match -qi "*microsoft*" -- (cat /proc/version)
+        # WSL still uses the Linux filesystem path inside the distro.
+        set -gx TI $_ti_root_linux
+    else
+        set -gx TI $_ti_root_linux
+    end
+else
+    # Fallback for unexpected systems: prefer the local mac path.
+    set -gx TI $_ti_root_mac
+end
 
 # -------- System --------
 set -gx LD_LIBRARY_PATH /usr/lib64 $LD_LIBRARY_PATH
@@ -73,14 +85,13 @@ function vbuild --description "Build Verilog sim with Verilator (TestInfra)"
         $VERILOG_PIN/PinOut.v \
         $VERILOG_PIN/PinInAdapter.v \
         $VERILOG_PIN/PinOutAdapter.v \
-        $VERILOG_PIN/Comparer.v \
         $VERILOG_DUT/*.v \
         $VERILOG_PIN/PinInDriver.v \
         $VERILOG_PIN/PinInRegister.v \
         $VERILOG_PIN/PinOutSampler.v \
         $VERILOG_PIN/PinOutRegister.v \
         --exe $CPP_SIM/main.cpp $CPP_SRC/Ate.cpp \
-        --trace --trace-max-array 256 --trace-max-width 256 \
+        --trace --trace-structs --trace-max-array 256 --trace-max-width 4096 \
         --build \
         --top-module Socket \
         -CFLAGS "-std=c++20 -I$CPP_INC -fPIC"

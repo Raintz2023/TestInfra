@@ -2,6 +2,15 @@
 from ate import ATE
 import argparse
 import importlib
+import os
+from pathlib import Path
+
+
+def get_ti_root() -> Path:
+    ti = os.environ.get("TI")
+    if not ti:
+        raise RuntimeError("Environment variable TI is not set")
+    return Path(ti)
 
 
 def load_pattern(pat_name):
@@ -48,17 +57,17 @@ def main(argv=None):
     for y in yr:
         for x in xr:
 
-            wave_name = f"/home/seagull/Code/TestInfra/Python/wave/wave_{x}_{y}.vcd"
+            wave_name = str(get_ti_root() / "Python" / "wave" / f"dram_x{x}_y{y}.vcd")
 
             ate = ATE(
                 wave_name=wave_name,
-                trace_enable=False,
+                trace_enable=True,
                 top_data_init=args.td
             )
 
             run(ate, args.tfn, x, y)
 
-            ate.print_compare_results()
+            ate.print_compare_results_and()
 
         print()
 

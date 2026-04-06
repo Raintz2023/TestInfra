@@ -4,6 +4,137 @@ from Python.pat.cls import *
 from typing import Iterable
 
 from Python.pat.ir import *
+
+
+def _def_map(def_list: list[DefCmd]) -> dict[str, DefCmd]:
+    return {def_cmd.name: def_cmd for def_cmd in def_list}
+
+
+def _validate_defs(def_list: list[DefCmd]) -> None:
+    seen = set()
+    for def_cmd in def_list:
+        if def_cmd.name in seen:
+            raise ValueError(f"Duplicate DEF {def_cmd.name}")
+        seen.add(def_cmd.name)
+
+        exp_roles = [role for role in def_cmd.roles if role.kind == "EXP"]
+        dly_roles = [role for role in def_cmd.roles if role.kind == "DLY"]
+        out_roles = [role for role in def_cmd.roles if role.kind == "O"]
+        if len(exp_roles) > 1:
+            raise ValueError(f"DEF {def_cmd.name} has more than one EXP")
+        if len(dly_roles) > 1:
+            raise ValueError(f"DEF {def_cmd.name} has more than one DLY")
+        if exp_roles and not out_roles:
+            raise ValueError(f"DEF {def_cmd.name} uses EXP without O field")
+
+
+def _expected_arg_count(def_cmd: DefCmd) -> int:
+    count = sum(1 for role in def_cmd.roles if role.kind == "I")
+    if def_cmd.has_exp():
+        count += 1
+    if def_cmd.has_dly():
+        count += 1
+    return count
+
+
+def _collect_vars(ir_list: list) -> list[str]:
+    names = []
+    default_names = ["X", "Y", "ADDR", "VAL", "TEMP"]
+    for name in default_names:
+        if name not in names:
+            names.append(name)
+    for ins in ir_list:
+        if isinstance(ins, ASSIGN) and ins.name not in names:
+            names.append(ins.name)
+    return names
+
+
+def _helper_params(def_cmd: DefCmd) -> list[str]:
+    params = []
+    input_idx = 0
+    for role in def_cmd.roles:
+        if role.kind == "I":
+            params.append(f"v{input_idx}")
+            input_idx += 1
+    if def_cmd.has_exp():
+        params.append("exp")
+    if def_cmd.has_dly():
+        params.append("dly")
+    return params
+
+
+def _emit_helper(lines: list[str], def_cmd: DefCmd) -> None:
+    fn_name = f"_cmd_{def_cmd.name.lower()}"
+    params = _helper_params(def_cmd)
+    signature = ", ".join(["ate_obj"] + params)
+    lines.append(f"def {fn_name}({signature}):")
+
+    has_dly = def_cmd.has_dly()
+    input_idx = 0
+    output_role = None
+    has_drive = False
+
+    for role in def_cmd.roles:
+        if role.kind == "E":
+            if has_dly:
+                lines.append(f"    ate_obj.stage_drive_pin({role.start}, True, delay=dly)")
+            else:
+                lines.append(f"    ate_obj.stage_drive_pin({role.start}, True)")
+            has_drive = True
+        elif role.kind == "I":
+            width = role.width()
+            arg = f"v{input_idx}"
+            input_idx += 1
+            if has_dly:
+                lines.append(
+                    f"    ate_obj.stage_drive_field({role.start}, {width}, {arg}, delay=dly)"
+                )
+            else:
+                lines.append(
+                    f"    ate_obj.stage_drive_field({role.start}, {width}, {arg})"
+                )
+            has_drive = True
+        elif role.kind == "O":
+            output_role = role
+
+    if has_drive:
+        lines.append("    ate_obj.pulse_drive()")
+
+    if output_role is not None and def_cmd.has_exp():
+        width = output_role.width()
+        lines.append("    ate_obj.set_top_data(exp)")
+        if has_dly:
+            lines.append(
+                f"    ate_obj.sample(ate.CompareSpec.field({output_role.start}, {width}, dly))"
+            )
+        else:
+            lines.append(
+                f"    ate_obj.sample(ate.CompareSpec.field({output_role.start}, {width}, 0))"
+            )
+
+    if not has_drive and output_role is None:
+        lines.append("    pass")
+
+    lines.append("")
+
+
+def _emit_cmd_call(ins: CmdCall, defs: dict[str, DefCmd]) -> str:
+    if ins.name not in defs:
+        return f"# TODO unsupported CMD: {ins.name} has no DEF"
+    def_cmd = defs[ins.name]
+    expected = _expected_arg_count(def_cmd)
+    if len(ins.args) != expected:
+        return (
+            f"# TODO unsupported CMD: {ins.name} expects {expected} args by DEF, "
+            f"got {len(ins.args)} ({ins.args})"
+        )
+
+    args = ", ".join(str(arg) for arg in ins.args)
+    if args:
+        return f"_cmd_{ins.name.lower()}(ate_obj, {args})"
+    return f"_cmd_{ins.name.lower()}(ate_obj)"
+
+
 def get_label_dict(ir_list:list):    
     key_ctrl_count = 0
     label_dict = {}
@@ -37,7 +168,7 @@ def split_ir_list(ir_list:list):
         raise RtnError("No RTN block in Pattern.")
     return spliting_ir_list
 
-def emit_python(testflow_list:list[Row], ir_list:list, out_path: str | Path, func_name: str = "run") -> None:
+def emit_python(testflow_list:list[Row], def_list:list[DefCmd], ir_list:list, out_path: str | Path, func_name: str = "run") -> None:
     """
     Convert testflow and ir list to python script
     Supported:
@@ -46,13 +177,24 @@ def emit_python(testflow_list:list[Row], ir_list:list, out_path: str | Path, fun
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    defs = _def_map(def_list)
+    _validate_defs(def_list)
 
     lines: list[str] = []
     lines.append("# Auto-generated. DO NOT EDIT.")
     lines.append("")
-    lines.append("from ate import ATE")
+    # lines.append("from ate import ATE")
+    lines.append("import ate")
     lines.append("")
-    lines.append(f"def {func_name}(ate: ATE, TESTFLOW=1, X=0, Y=0, ADDR=0, VAL=0, TEMP=0):")
+
+    for def_cmd in def_list:
+        _emit_helper(lines, def_cmd)
+
+    vars_ = _collect_vars(ir_list)
+    defaults = ", ".join(f"{name}=0" for name in vars_)
+    lines.append(f"def {func_name}(ate_obj: ate.ATE, TESTFLOW=1, {defaults}):")
+    lines.append("    T = 1")
+    lines.append("    F = 0")
 
     # all_label_list and spliting_ir_list one by one
     spliting_label_list = []
@@ -74,7 +216,7 @@ def emit_python(testflow_list:list[Row], ir_list:list, out_path: str | Path, fun
                 # 第三层循环： 判断tf_label是否存在于spliting_label_list中，并获取label的pc以及对应的ir_list
                 if testflow_label in label.keys():
                     pc_init = label[testflow_label]
-                    trans_line(pc_init ,lines=lines, ir_list=spliting_ir_list[i], label_dict=label)
+                    trans_line(pc_init, lines=lines, ir_list=spliting_ir_list[i], label_dict=label, defs=defs)
 
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -85,7 +227,7 @@ def ctrl_counter(pc, ctrl_count):
         ctrl_count += 3
     return ctrl_count
 
-def trans_line(pc_init:int, lines:list, ir_list:list, label_dict:dict):
+def trans_line(pc_init:int, lines:list, ir_list:list, label_dict:dict, defs:dict[str, DefCmd]):
     pc = pc_init
     ir_list_len = len(ir_list)
     cmd_count = 0
@@ -101,38 +243,28 @@ def trans_line(pc_init:int, lines:list, ir_list:list, label_dict:dict):
             break
         #########################CMD#########################
         if isinstance(ins, TICK):
-            lines.append(f"{indent}ate.tick()")
-            lines.append(f"{indent}ate.tick()")
+            lines.append(f"{indent}ate_obj.tick()")
+            lines.append(f"{indent}ate_obj.tick()")
             cmd_count += 1
 
-        elif isinstance(ins, MRW):
-            lines.append(f"{indent}ate.mr_write({ins.addr}, {ins.data})")
+        elif isinstance(ins, CmdCall):
+            lines.append(f"{indent}{_emit_cmd_call(ins, defs)}")
             cmd_count += 1
 
-        elif isinstance(ins, WR):
-            lines.append(f"{indent}ate.write({ins.addr})")
+        elif isinstance(ins, CPA):
+            lines.append(f"{indent}ate_obj.compare_all()")
             cmd_count += 1
 
-        elif isinstance(ins, RD):
-            lines.append(f"{indent}ate.read({ins.addr})")
+        elif isinstance(ins, CPL):
+            lines.append(f"{indent}ate_obj.compare_last()")
             cmd_count += 1
-            
-        elif isinstance(ins, DRV):
-            if ins.bool_ == "T":
-                lines.append(f"{indent}ate.drive({ins.shift}, True)")
-            else:
-                lines.append(f"{indent}ate.drive({ins.shift}, False)")
-            cmd_count += 1
-        
-        elif isinstance(ins, SMP):
-            if ins.bool_ == "T":
-                lines.append(f"{indent}ate.sample({ins.shift}, True)")
-            else:
-                lines.append(f"{indent}ate.sample({ins.shift}, False)")
+
+        elif isinstance(ins, CCR):
+            lines.append(f"{indent}ate_obj.clear_compare_results()")
             cmd_count += 1
 
         elif isinstance(ins, RST):
-            lines.append(f"{indent}ate.reset()")
+            lines.append(f"{indent}ate_obj.reset()")
             cmd_count += 1
     
         #########################REG#########################

@@ -4,10 +4,18 @@ from Python.pat.cls import *
 from Python.pat.tools import _count_label_in_ctrl
 
 import re
+from dataclasses import dataclass
 
 # 例：<1> START -> TEST1 -> TEST2 -> STOP   // comment
 _RE_TESTFLOW_LINE = re.compile(r'^\s*<\s*(\d+)\s*>\s*(.+?)\s*$')
 _RE_VALID_NODE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')  # 你可按需放宽，比如允许 '-' 等
+
+
+@dataclass
+class RawPat:
+    testflows: list[Row]
+    def_lines: list[str]
+    rows: list[Row]
 
 def _parse_testflow(raw: str) -> Row | None:
     """
@@ -59,7 +67,6 @@ def parse_pat_row(line: str) -> Row | None:
     # 先尝试匹配 testflow
     tf = _parse_testflow(raw)
     if tf is not None:
-        print(tf.cmd2)
         return tf
 
     # PAT 表格行必须有 '|'
@@ -92,15 +99,26 @@ def parse_pat_row(line: str) -> Row | None:
     return Row({"ctrl": labeled_ctrl, "reg": reg, "cmd1": cmd1, "cmd2": cmd2})
 
 def read_pat(pat_path:str) -> list[Row]:
-
     lines = Path(pat_path).read_text(encoding="utf-8", errors="replace").splitlines(True)
 
-    rows = []
+    raw_pat = RawPat(testflows=[], def_lines=[], rows=[])
     for line in lines:
-        row = parse_pat_row(line)
-        rows.append(row)
+        raw = line.rstrip("\n").split('//')[0].strip()
+        if not raw:
+            continue
+        if raw.startswith("DEF "):
+            raw_pat.def_lines.append(raw)
+            continue
 
-    return rows
+        row = parse_pat_row(line)
+        if row is None:
+            continue
+        if row.ctrl == "TESTFLOW":
+            raw_pat.testflows.append(row)
+        else:
+            raw_pat.rows.append(row)
+
+    return raw_pat
 
 
 if __name__ == "__main__":

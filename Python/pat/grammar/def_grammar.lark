@@ -1,0 +1,21 @@
+?start: def_stmt
+
+def_stmt: "DEF" NAME "=" role+
+
+?role: enable_role
+     | input_role
+     | output_role
+     | exp_role
+     | dly_role
+
+enable_role: "E" INT
+input_role: "I" INT ":" INT
+output_role: "O" INT ":" INT
+exp_role: "EXP"
+dly_role: "DLY"
+
+NAME: /[A-Z][A-Z0-9_]*/
+
+%import common.INT
+%import common.WS
+%ignore WS

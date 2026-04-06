@@ -1,29 +1,28 @@
 ?start: cmd
-     |reset
-cmd: OP "<" args
+      | reset
+      | compare_all
+      | compare_last
+      | clear_compare
 
-OP: "MRW" | "WR" | "RD" | "DRV" | "SMP"
+cmd: NAME DIRECTION cmd_args?
 reset: "RST"
+compare_all: "CPA"
+compare_last: "CPL"
+clear_compare: "CCR"
 
-?args: mrw_args
-     | wr_rd_args
-     | drv_smp_args
+DIRECTION: "<" | ">"
+NAME: /[A-Z][A-Z0-9_]*/
 
-mrw_args: addr_expr "," expr
-?wr_rd_args: addr_expr
-drv_smp_args: expr ("," BOOL)?
-
-addr_expr: "ADDR" ("+" term)?
+?cmd_args: expr ("," expr)*
 
 ?expr: term
      | expr "+" term   -> add
 
-?term: INT      
-     | REG             
+?term: HEX           -> hex_lit
+     | INT           -> int_lit
+     | NAME          -> var
 
-REG: "X" | "Y" | "VAL" | "TEMP"
-BOOL: "F" | "T"
-
+HEX: /0[xX][0-9a-fA-F]+/
 %import common.INT
 %import common.WS
 %ignore WS

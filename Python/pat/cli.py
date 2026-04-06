@@ -18,9 +18,9 @@ def main(argv=None) -> int:
     in_path = args.in_path
     out_path = args.out_path
 
-    testflow_list, ir_list = trans_pat(in_path)
+    testflow_list, def_list, ir_list = trans_pat(in_path)
 
-    emit_python(testflow_list, ir_list, out_path, func_name=args.func_name)
+    emit_python(testflow_list, def_list, ir_list, out_path, func_name=args.func_name)
 
     print(f"[OK] {in_path} -> {out_path}  (IR={len(ir_list)})")
     return 0

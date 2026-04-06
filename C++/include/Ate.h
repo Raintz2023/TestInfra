@@ -5,6 +5,7 @@
 #include "verilated_vcd_c.h"
 
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <string>
 #include <vector>
@@ -100,14 +101,18 @@ public:
     void stage_drive_field(int lsb, int width, uint32_t value, uint32_t delay = 0);
     void pulse_drive();
 
-    // Common external APIs: run one compare operation and record the result.
-    bool compare();
-    bool compare(const CompareSpec& spec);
+    // Common external APIs: sample first, then compare the saved sample history.
+    void sample();
+    void sample(const CompareSpec& spec);
+    bool compare_last();
+    bool compare_all();
     std::vector<bool> compare_results() const;
     bool has_compare_results() const { return !compare_results_.empty(); }
     bool last_compare_result() const;
+    bool all_compare_results_pass() const;
     void clear_compare_results();
     void print_compare_results() const;
+    void print_compare_results_and() const;
 
     uint64_t clock() const { return clock_; }
     uint64_t cycle() const { return cycle_; }
@@ -127,8 +132,6 @@ public:
     std::vector<uint32_t> sample_counts() const;
 
     uint32_t current_output_raw() const;
-    bool current_compare_pass() const;
-    bool current_compare_valid() const;
     uint32_t last_sampled_raw() const { return last_sample_.raw; }
     SampleRecord last_sampled_record() const { return last_sample_; }
     const std::vector<SampleRecord>& captured_samples() const { return captured_samples_; }
@@ -174,7 +177,7 @@ private:
     uint64_t clock_ = 0;
     uint64_t cycle_ = 0;
     uint32_t top_data_ = 0;
-    CompareSpec pending_compare_spec_{};
+    std::deque<CompareSpec> pending_compare_specs_;
 
     SampleRecord last_sample_{};
     std::vector<SampleRecord> captured_samples_;

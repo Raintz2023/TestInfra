@@ -84,10 +84,49 @@ class NO_REG(REG):
 @dataclass(frozen=True)
 class ASSIGN(REG):
     name: str
-    value: str
+    value: str | int
 
     def __repr__(self):
         return f"REG.ASSIGN(reg={self.name}, val={self.value})"
+
+################################### DEF######################################
+
+
+@dataclass(frozen=True)
+class DefRole:
+    kind: str
+    start: int | None = None
+    end: int | None = None
+
+    def width(self) -> int | None:
+        if self.start is None or self.end is None:
+            return None
+        return self.end - self.start + 1
+
+    def __repr__(self):
+        if self.start is None:
+            return f"DEF.{self.kind}"
+        if self.end is None:
+            return f"DEF.{self.kind}{self.start}"
+        return f"DEF.{self.kind}{self.start}:{self.end}"
+
+
+@dataclass(frozen=True)
+class DefCmd:
+    name: str
+    roles: list[DefRole]
+
+    def has_output(self) -> bool:
+        return any(role.kind == "O" for role in self.roles)
+
+    def has_exp(self) -> bool:
+        return any(role.kind == "EXP" for role in self.roles)
+
+    def has_dly(self) -> bool:
+        return any(role.kind == "DLY" for role in self.roles)
+
+    def __repr__(self):
+        return f"DEF.CMD(name={self.name}, roles={self.roles})"
 
 ################################### CMD######################################
 
@@ -104,38 +143,28 @@ class TICK(CMD):
 
 
 @dataclass(frozen=True)  # Fields cannot be modified after object creation.
-class MRW(CMD):
-    addr: str
-    data: str
-    def __repr__(self):
-        return f"CMD.MRW(addr={self.addr}, data={self.data})"
+class CmdCall(CMD):
+    name: str
+    direction: str
+    args: list[str | int]
 
-@dataclass(frozen=True)
-class WR(CMD):
-    addr: str
     def __repr__(self):
-        return f"CMD.WR(addr={self.addr})"
-    
-@dataclass(frozen=True)
-class RD(CMD):
-    addr: str
-    def __repr__(self):
-        return f"CMD.RD(addr={self.addr})"
+        return f"CMD.CALL(name={self.name}, dir={self.direction}, args={self.args})"
 
-@dataclass(frozen=True)
-class DRV(CMD):
-    shift: str
-    bool_: str
-    def __repr__(self):
-        return f"CMD.DRV(shift={self.shift}, inverted={self.bool_})"
 
-@dataclass(frozen=True)
-class SMP(CMD):
-    shift: str
-    bool_: str
+class CPA(CMD):
     def __repr__(self):
-        return f"CMD.SMP(shift={self.shift}, inverted={self.bool_})"
-    
+        return "CMD.CPA"
+
+
+class CPL(CMD):
+    def __repr__(self):
+        return "CMD.CPL"
+
+
+class CCR(CMD):
+    def __repr__(self):
+        return "CMD.CCR"
     
 class RST(CMD):
     def __repr__(self):

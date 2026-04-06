@@ -12,7 +12,7 @@ verilator -Wall --cc \
   $RTL/Driver.v \
   $RTL/Out_Register.v \
   --exe $CPP_SIM/main.cpp  $CPP_SRC/Ate.cpp\
-  --trace \
+  --trace --trace-structs --trace-max-array 256 --trace-max-width 4096 \
   --build \
   --top-module Ate \
   -CFLAGS "-std=c++20 -I$CPP_INC -fPIC" 

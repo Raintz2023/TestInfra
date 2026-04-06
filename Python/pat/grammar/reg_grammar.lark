@@ -1,14 +1,15 @@
 ?start: assign
-assign: REG "=" expr
+assign: NAME "=" expr
 
 ?expr: term
      | expr "+" term   -> add
 
-?term: INT           -> int_lit
-     | REG           -> var
+?term: HEX           -> hex_lit
+     | INT           -> int_lit
+     | NAME          -> var
 
+NAME: /[A-Z][A-Z0-9_]*/
+HEX: /0[xX][0-9a-fA-F]+/
 %import common.INT
 %import common.WS
 %ignore WS
-
-REG: "X" | "Y" | "ADDR" | "VAL" | "TEMP"
