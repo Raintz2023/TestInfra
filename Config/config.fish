@@ -10,6 +10,10 @@ end
 
 ############################BUILD############################
 # -------- Project --------
+set -l _ti_os (uname -s)
+set -l _ti_root_mac /Users/lichenyu/Code/TestInfra
+set -l _ti_root_linux /home/seagull/Code/TestInfra
+
 if test "$_ti_os" = "Darwin"
     set -gx TI $_ti_root_mac
 else if test "$_ti_os" = "Linux"
