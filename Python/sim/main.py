@@ -1,4 +1,3 @@
-# from ate import ATE
 from ate import ATE
 import argparse
 import importlib
@@ -54,6 +53,9 @@ def main(argv=None):
 
     print("--- ATE Test Start ---")
 
+    print("TRAINING...")
+    y_pass_window = []
+    x_pass_window = []
     for y in yr:
         for x in xr:
 
@@ -61,15 +63,38 @@ def main(argv=None):
 
             ate = ATE(
                 wave_name=wave_name,
-                trace_enable=True,
+                trace_enable=False,
                 top_data_init=args.td
             )
 
-            run(ate, args.tfn, x, y)
+            compare_results = run(ate, args.tfn, x, y)
+
+            if compare_results:
+                y_pass_window.append(y)
+                x_pass_window.append(x)
+            
 
             ate.print_compare_results_and()
-
+        
         print()
+
+    xt = int(sum(x_pass_window)/len(x_pass_window))
+    yt = int(sum(y_pass_window)/len(y_pass_window))
+    print(f"TRAINING X={xt}, Y={yt}")
+
+    ate.reset()
+
+    for i in range(20):
+        ate = ATE(
+                    wave_name=wave_name,
+                    trace_enable=False,
+                    top_data_init=i
+                )
+
+        compare_results = run(ate, 2, xt, yt)
+        ate.print_compare_results_and()
+        
+    print()
 
     print("--- ATE Test Stop ---")
 

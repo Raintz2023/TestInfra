@@ -489,3 +489,25 @@
     // 其他扩展
     "chatgpt.runCodexInWindowsSubsystemForLinux": true
 }
+
+
+// {
+//     "python.defaultInterpreterPath": "/home/seagull/Code/TestInfra/.venv/bin/python3",
+//     "python.terminal.activateEnvironment": true,
+//     "python.analysis.extraPaths": [
+//         "/home/seagull/Code/TestInfra",
+//         "/home/seagull/Code/TestInfra/Python/libs",
+//         "/home/seagull/Code/TestInfra/Python/stubs",
+//         "/home/seagull/Code/TestInfra/.venv/lib/python3.13/site-packages",
+//         "/home/seagull/.local/lib/python3.13/site-packages/cocotb"
+//     ],
+//     "python.analysis.diagnosticMode": "openFilesOnly",
+//     "python.analysis.typeCheckingMode": "basic",
+//     "python.analysis.diagnosticSeverityOverrides": {
+//         "reportAttributeAccessIssue": "none",
+//         "reportOptionalMemberAccess": "none",
+//         "reportReturnType": "none"
+//     },
+//     "python.analysis.autoSearchPaths": true,
+//     "python.analysis.useLibraryCodeForTypes": true
+// }

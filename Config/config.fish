@@ -52,6 +52,8 @@ set -gx CPP_WAVE $CPP/wave
 
 # -------- Python --------
 set -gx PYTHON $TI/Python
+set -gx TI_VENV $TI/.venv
+set -gx TI_PYTHON_BIN $TI_VENV/bin/python3
 set -gx PYTHON_LIBS $PYTHON/libs
 set -gx PYTHON_PAT_PATTERN $PYTHON/pat/pattern
 set -gx PYTHON_PAT_GEN $PYTHON/pat/generated
@@ -107,15 +109,20 @@ end
 
 function cbuild --description "Build Cpp sim with pybind11 using CMake (TestInfra)"
     # 必要环境变量检查
-    for v in CPP CPP_SIM CPP_SRC CPP_INC CPP_BUILD
+    for v in CPP CPP_SIM CPP_SRC CPP_INC CPP_BUILD TI_PYTHON_BIN
         if not set -q $v
             echo "cbuild: missing env var '$v' (e.g. set -x $v /path/to/...)" >&2
             return 2
         end
     end
 
+    if not test -x $TI_PYTHON_BIN
+        echo "cbuild: python not found or not executable: $TI_PYTHON_BIN" >&2
+        return 2
+    end
+
     pushd $CPP_BUILD >/dev/null
-    command cmake ..
+    command cmake -DPython3_EXECUTABLE=$TI_PYTHON_BIN ..
     command make
     set -l rc $status
     popd >/dev/null
@@ -124,11 +131,16 @@ end
 
 function pbuild --description "Build Python sim with pattern using lark (TestInfra)"
     # ---- 必要环境变量检查（按实际使用列出来）----
-    for v in TI PYTHON_LIBS PYTHON_PAT_PATTERN PYTHON_PAT_GEN PYTHON_STUBS
+    for v in TI TI_PYTHON_BIN PYTHON_LIBS PYTHON_PAT_PATTERN PYTHON_PAT_GEN PYTHON_STUBS
         if not set -q $v
             echo "pbuild: missing env var '$v' (e.g. set -Ux $v /path/to/...)" >&2
             return 2
         end
+    end
+
+    if not test -x $TI_PYTHON_BIN
+        echo "pbuild: python not found or not executable: $TI_PYTHON_BIN" >&2
+        return 2
     end
 
     # ---- 参数检查 ----
@@ -169,7 +181,7 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
 
     # ---- Step 1: 生成 pybind11 stubs ----
     pushd $PYTHON_LIBS >/dev/null
-    command python3 -m pybind11_stubgen ate -o $PYTHON_STUBS
+    command $TI_PYTHON_BIN -m pybind11_stubgen ate -o $PYTHON_STUBS
     or begin
         set -l rc $status
         popd >/dev/null
@@ -180,7 +192,7 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
 
     # ---- Step 2: 生成 pattern Python ----
     pushd $TI >/dev/null
-    command python3 -m Python.pat.cli --in "$in_file" --out "$out_file"
+    command $TI_PYTHON_BIN -m Python.pat.cli --in "$in_file" --out "$out_file"
     or begin
         set -l rc $status
         popd >/dev/null
@@ -193,11 +205,16 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
 end
 
 function pingen --description "Generate Verilog pin adapters and DUT wrapper from pinmap (TestInfra)"
-    for v in VERILOG TI
+    for v in VERILOG TI TI_PYTHON_BIN
         if not set -q $v
             echo "pingen: missing env var '$v'" >&2
             return 2
         end
+    end
+
+    if not test -x $TI_PYTHON_BIN
+        echo "pingen: python not found or not executable: $TI_PYTHON_BIN" >&2
+        return 2
     end
 
     if test (count $argv) -ne 1
@@ -207,7 +224,7 @@ function pingen --description "Generate Verilog pin adapters and DUT wrapper fro
     end
 
     pushd $TI >/dev/null
-    command python3 $VERILOG/script/gen_pin_adapter.py $argv[1]
+    command $TI_PYTHON_BIN $VERILOG/script/gen_pin_adapter.py $argv[1]
     set -l rc $status
     popd >/dev/null
     return $rc
@@ -216,8 +233,13 @@ end
 alias cate="$CPP/obj_dir/VSocket"
 
 function pate
+    if not test -x $TI_PYTHON_BIN
+        echo "pate: python not found or not executable: $TI_PYTHON_BIN" >&2
+        return 2
+    end
+
     pushd $TI >/dev/null
-    command python -m Python.sim.main $argv
+    command $TI_PYTHON_BIN -m Python.sim.main $argv
     set -l rc $status
     popd >/dev/null
     return $rc
@@ -280,6 +302,7 @@ end
 function venv --description "Activate local Python virtual environment in current directory"
     set -l venv_dir ./.venv
     set -l activate_script $venv_dir/bin/activate.fish
+    set -l python_bootstrap /usr/sbin/python3.13
 
     if test -d $venv_dir
         echo "[venv] Found an existing virtual environment in the current directory: $venv_dir"
@@ -291,10 +314,10 @@ function venv --description "Activate local Python virtual environment in curren
         end
 
         echo "[venv] Creating virtual environment: $venv_dir"
-        command python3 -m venv $venv_dir
+        command $python_bootstrap -m venv --system-site-packages $venv_dir
         or begin
             set -l rc $status
-            echo "[venv] Failed to create virtual environment, python3 -m venv exit code: $rc" >&2
+            echo "[venv] Failed to create virtual environment, $python_bootstrap -m venv exit code: $rc" >&2
             return $rc
         end
         echo "[venv] Virtual environment created successfully"

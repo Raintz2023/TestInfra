@@ -1,5 +1,4 @@
 # Used to store some simple package class.
-from abc import abstractmethod
 
 class Row:
     def __init__(self, row:dict) -> None:
@@ -10,33 +9,53 @@ class Row:
 
 
 class PatternError(Exception):
-    """
-        Define a custom measurement exception class to represent error messages during pattern compilation.
-    """
-    @abstractmethod
-    def __init__(self, msg: str, detail: str):
-        self.msg = msg
+    """Base error for pattern compilation."""
+
+    default_msg = "Pattern compile error"
+    kind = "pattern_error"
+
+    def __init__(self, detail: str = "", msg: str | None = None, kind: str | None = None):
+        super().__init__(detail)
+        self.msg = msg or self.default_msg
         self.detail = detail
+        self.kind = kind or self.kind
 
     def __str__(self):
+        if not self.detail:
+            return self.msg
         return f"{self.msg}: {self.detail}"
-    
+
+
 class LabelError(PatternError):
-    def __init__(self, detail):
-        self.msg = "\nDuplicate labels in the pattern"
-        self.detail = detail
+    default_msg = "Duplicate labels in the pattern"
+    kind = "label_error"
+
 
 class CtrlError(PatternError):
-    def __init__(self, detail):
-        self.msg = "\nPattern CTRL block must be 4 line"
-        self.detail = detail
+    default_msg = "Pattern CTRL block must be 4 line"
+    kind = "ctrl_error"
+
 
 class RtnError(PatternError):
-    def __init__(self, detail):
-        self.msg = "\nPattern end need RTN block"
-        self.detail = detail
+    default_msg = "Pattern end need RTN block"
+    kind = "rtn_error"
+
 
 class TestflowError(PatternError):
-    def __init__(self, detail):
-        self.msg = "\nNo testflow in the begining of this pattern"
-        self.detail = detail
+    default_msg = "Testflow error"
+    kind = "testflow_error"
+
+
+class NoTestflowError(TestflowError):
+    default_msg = "No testflow in the beginning of this pattern"
+    kind = "testflow_missing"
+
+
+class EmptyTestflowError(TestflowError):
+    default_msg = "Testflow block is empty"
+    kind = "testflow_empty"
+
+
+class UnknownTestflowLabelError(TestflowError):
+    default_msg = "Testflow references an unknown label"
+    kind = "testflow_unknown_label"

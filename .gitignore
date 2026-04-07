@@ -68,3 +68,6 @@ _*_gen.py
 # ===== Config =====
 !Config/
 !Config/**
+
+# ===== codex =====
+.codex

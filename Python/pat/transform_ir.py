@@ -165,6 +165,6 @@ def trans_pat(pat_path: str):
     testflow_list.extend(raw_pat.testflows)
 
     if not testflow_list:
-        raise TestflowError(f"{pat_path} has not testflow.")  ##
+        raise NoTestflowError(str(pat_path))
 
     return testflow_list, def_list, ir_list
