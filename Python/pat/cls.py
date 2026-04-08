@@ -47,7 +47,7 @@ class TestflowError(PatternError):
 
 
 class NoTestflowError(TestflowError):
-    default_msg = "No testflow in the beginning of this pattern"
+    default_msg = "No testflow in the beginning of this pattern or testflow number isn't right(>=0)"
     kind = "testflow_missing"
 
 
@@ -59,3 +59,7 @@ class EmptyTestflowError(TestflowError):
 class UnknownTestflowLabelError(TestflowError):
     default_msg = "Testflow references an unknown label"
     kind = "testflow_unknown_label"
+
+class TestflowNumError(TestflowError):
+    default_msg = "The testflow number is negative, must be >=0"
+    kind = "testflow_num_negative"
