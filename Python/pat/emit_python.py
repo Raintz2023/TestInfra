@@ -225,8 +225,11 @@ def emit_python(testflow_list:list[Row], def_list:list[DefCmd], ir_list:list, ou
     # for i in range(len(all_label_list)):
     #     trans_line(lines=lines, ir_list=spliting_ir_list[i], label_dict=all_label_list[i])
 
+    testflow_num = []
     for testflow in testflow_list:
         # 第一层循环：外部传入testflow num来控制执行
+        if testflow.reg in testflow_num:
+            raise TestflowNumError(f"Testflow number {testflow.reg} is duplicated")
         lines.append(f"    if TESTFLOW == {testflow.reg}:")
         for testflow_label in testflow.cmd2.split(','):
             # 第二层循环： 该条testflow的所有label
@@ -241,6 +244,7 @@ def emit_python(testflow_list:list[Row], def_list:list[DefCmd], ir_list:list, ou
                     continue
             if testflow_label_use_num == 0:
                 raise UnknownTestflowLabelError(f"{testflow_label} cannot be found in testflow")
+        testflow_num.append(testflow.reg)
 
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

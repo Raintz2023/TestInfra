@@ -154,6 +154,9 @@ def trans_pat(pat_path: str):
     ir_list = []
     raw_pat = read_pat(pat_path=pat_path)
 
+    if not raw_pat.testflows and not raw_pat.def_lines and not raw_pat.rows:
+        return [], [], []
+
     for def_line in raw_pat.def_lines:
         tree = parse_def(def_line)
         def_list.append(DefToIR().transform(tree))

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 # 例：<1> START -> TEST1 -> TEST2 -> STOP   // comment
 _RE_TESTFLOW_LINE = re.compile(r'^\s*<\s*(\d+)\s*>\s*(.+?)\s*$')
 _RE_VALID_NODE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')  # 你可按需放宽，比如允许 '-' 等
+_RE_INCLUDE_LINE = re.compile(r'^\s*INCLUDE\s+(.+?)\s*$')
 
 
 @dataclass
@@ -16,6 +17,94 @@ class RawPat:
     testflows: list[Row]
     def_lines: list[str]
     rows: list[Row]
+
+
+@dataclass
+class SourceLine:
+    path: Path
+    lineno: int
+    text: str
+
+
+def _strip_comment(line: str) -> str:
+    return line.split('//')[0].strip()
+
+
+def _resolve_include_path(base_path: Path, include_target: str) -> Path:
+    include_path = Path(include_target.strip())
+    if include_path.suffix == "":
+        include_path = include_path.with_suffix(".pat")
+    if not include_path.is_absolute():
+        include_path = base_path.parent / include_path
+    return include_path.resolve()
+
+
+def _expand_include_lines(pat_path: str | Path, stack: tuple[Path, ...] = ()) -> list[SourceLine]:
+    path = Path(pat_path).resolve()
+    if path in stack:
+        cycle = " -> ".join(str(p) for p in stack + (path,))
+        raise RuntimeError(f"Cyclic INCLUDE detected: {cycle}")
+    if not path.is_file():
+        raise FileNotFoundError(f"Pattern file not found: {path}")
+
+    expanded_lines: list[SourceLine] = []
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines(True)
+    for lineno, line in enumerate(lines, start=1):
+        raw = _strip_comment(line)
+        match = _RE_INCLUDE_LINE.match(raw)
+        if match is None:
+            expanded_lines.append(SourceLine(path=path, lineno=lineno, text=line))
+            continue
+
+        include_path = _resolve_include_path(path, match.group(1))
+        expanded_lines.extend(_expand_include_lines(include_path, stack + (path,)))
+
+    return expanded_lines
+
+
+def _load_compile_lines(pat_path: str | Path) -> list[SourceLine]:
+    path = Path(pat_path).resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"Pattern file not found: {path}")
+
+    compile_lines: list[SourceLine] = []
+    state = "before_begin"
+
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines(True)
+    for lineno, line in enumerate(lines, start=1):
+        raw = _strip_comment(line)
+
+        if state == "before_begin":
+            if not raw:
+                continue
+            if raw != "BEGIN":
+                return []
+            state = "in_body"
+            continue
+
+        if state == "after_end":
+            if raw:
+                raise PatternEndError(f"{path}:{lineno}")
+            continue
+
+        if raw == "END":
+            state = "after_end"
+            continue
+
+        match = _RE_INCLUDE_LINE.match(raw)
+        if match is None:
+            compile_lines.append(SourceLine(path=path, lineno=lineno, text=line))
+            continue
+
+        include_path = _resolve_include_path(path, match.group(1))
+        compile_lines.extend(_expand_include_lines(include_path, (path,)))
+
+    if state == "before_begin":
+        return []
+    if state != "after_end":
+        raise PatternEndError(str(path))
+
+    return compile_lines
 
 def _parse_testflow(raw: str) -> Row | None:
     """
@@ -99,11 +188,10 @@ def parse_pat_row(line: str) -> Row | None:
     return Row({"ctrl": labeled_ctrl, "reg": reg, "cmd1": cmd1, "cmd2": cmd2})
 
 def read_pat(pat_path:str) -> list[Row]:
-    lines = Path(pat_path).read_text(encoding="utf-8", errors="replace").splitlines(True)
-
     raw_pat = RawPat(testflows=[], def_lines=[], rows=[])
-    for line in lines:
-        raw = line.rstrip("\n").split('//')[0].strip()
+    for source_line in _load_compile_lines(pat_path):
+        line = source_line.text
+        raw = _strip_comment(line)
         if not raw:
             continue
         if raw.startswith("DEF "):
@@ -122,7 +210,5 @@ def read_pat(pat_path:str) -> list[Row]:
 
 
 if __name__ == "__main__":
-    pat = read_pat(r"/root/Code/TestInfra/Python/pattern/Simple.pat")
-
-    print(pat[2].ctrl)
-    print(pat[2].ctrl)
+    pat = read_pat("Python/pat/pattern/OneWriteRead.pat")
+    print(len(pat.testflows), len(pat.def_lines), len(pat.rows))

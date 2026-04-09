@@ -31,6 +31,21 @@ class LabelError(PatternError):
     kind = "label_error"
 
 
+class PatternBoundaryError(PatternError):
+    default_msg = "Pattern must be wrapped by BEGIN and END"
+    kind = "pattern_boundary_error"
+
+
+class PatternBeginError(PatternBoundaryError):
+    default_msg = "Pattern must start with BEGIN"
+    kind = "pattern_begin_missing"
+
+
+class PatternEndError(PatternBoundaryError):
+    default_msg = "Pattern must end with END"
+    kind = "pattern_end_missing"
+
+
 class CtrlError(PatternError):
     default_msg = "Pattern CTRL block must be 4 line"
     kind = "ctrl_error"
@@ -61,5 +76,5 @@ class UnknownTestflowLabelError(TestflowError):
     kind = "testflow_unknown_label"
 
 class TestflowNumError(TestflowError):
-    default_msg = "The testflow number is negative, must be >=0"
-    kind = "testflow_num_negative"
+    default_msg = "The testflow number is duplicated"
+    kind = "testflow_num_duplicated"
