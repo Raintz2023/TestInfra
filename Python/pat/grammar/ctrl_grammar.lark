@@ -12,9 +12,11 @@ labeled_ctrl: LABEL "#" ctrl
 
 nop: "NOP"
 rtn: "RTN"
-for_: "FOR-" INT
-goto: "GOTO-" INT LABEL
+for_: FOR_COUNT
+goto: GOTO_COUNT LABEL
 
+FOR_COUNT: /FOR-(\d+|[A-Z][A-Z0-9_]*)/
+GOTO_COUNT: /GOTO-(\d+|[A-Z][A-Z0-9_]*)/
 
 LABEL: /[A-Z][A-Z0-9_]*/
 

@@ -8,7 +8,9 @@
     { "port": "MR_IN", "lsb": 18, "msb": 25 },
     { "port": "MRW", "lsb": 26, "msb": 26 },
     { "port": "MRR", "lsb": 27, "msb": 27 },
-    { "port": "DRIV", "lsb": 28, "msb": 28 }
+    { "port": "DRIV", "lsb": 28, "msb": 28 },
+    { "port": "CLK", "lsb": 29, "msb": 29 },
+    { "port": "RST_N", "lsb": 30, "msb": 30 }
   ],
   "pin_out": [
     { "port": "DQ_IE", "lsb": 0, "msb": 0 },

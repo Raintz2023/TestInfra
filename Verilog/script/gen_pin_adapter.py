@@ -196,8 +196,6 @@ def emit_wrapper(config: PinMapConfig, ports: dict[str, PortInfo], pin_in_width:
 
     lines = [
         "module DUT(",
-        "    input  wire       CLK,",
-        "    input  wire       RST_N,",
         f"    input  wire [{pin_in_width - 1}:0] IN,",
         f"    output wire [{pin_out_width - 1}:0] OUT",
         ");",
@@ -219,8 +217,6 @@ def emit_wrapper(config: PinMapConfig, ports: dict[str, PortInfo], pin_in_width:
     lines.append("")
 
     lines.append("    " + dut_module + " u_dut (")
-    lines.append("        .CLK         (CLK),")
-    lines.append("        .RST_N       (RST_N),")
     ordered_ports = in_entries + out_entries
     for idx, entry in enumerate(ordered_ports):
         comma = "," if idx != len(ordered_ports) - 1 else ""

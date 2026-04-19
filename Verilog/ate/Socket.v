@@ -1,11 +1,14 @@
 module Socket #(
-    parameter PIN_IN_NUM  = 29,
+    parameter PIN_IN_NUM  = 31,
     parameter PIN_OUT_NUM = 19,
     parameter DEPTH    = 32,
     parameter OFFSET_W = $clog2(DEPTH)
 )(
-    input wire CLK,
-    input wire RST_N,
+    input wire ATE_CLK,
+    input wire ATE_RST_N,
+    /* verilator lint_off UNUSEDSIGNAL */
+    input wire ALERT,
+    /* verilator lint_on UNUSEDSIGNAL */
 
     input  wire [PIN_IN_NUM-1:0] DRIV,
     input  wire [PIN_IN_NUM-1:0] DRIV_IN,
@@ -28,8 +31,8 @@ module Socket #(
         .PIN_NUM(PIN_IN_NUM),
         .DEPTH(DEPTH)
     ) pin_in (
-        .CLK        (CLK),
-        .RST_N      (RST_N),
+        .CLK        (ATE_CLK),
+        .RST_N      (ATE_RST_N),
 
         .DRIV       (DRIV),
         .DRIV_IN    (DRIV_IN),
@@ -41,9 +44,6 @@ module Socket #(
     );
 
     DUT dut (
-        .CLK (CLK),
-        .RST_N(RST_N),
-
         .IN  (in_wire),
         .OUT (out_wire)
     );
@@ -52,8 +52,8 @@ module Socket #(
         .PIN_NUM(PIN_OUT_NUM),
         .DEPTH(DEPTH)
     ) pin_out (
-        .CLK        (CLK),
-        .RST_N      (RST_N),
+        .CLK        (ATE_CLK),
+        .RST_N      (ATE_RST_N),
 
         .SAMP       (SAMP),
         .SAMP_IN    (out_wire),

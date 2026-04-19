@@ -80,6 +80,8 @@ endif()
 
 pybind11_add_module(ate
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Ate.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Timing.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Waveform.cpp"
 )
 
 target_compile_definitions(ate PRIVATE ATE_PYBIND)

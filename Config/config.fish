@@ -1,5 +1,5 @@
 ############################USER############################
-oh-my-posh init fish --config ~/montys.omp.json | source
+oh-my-posh init fish --config /opt/homebrew/opt/oh-my-posh/themes/montys.omp.json | source
 alias ff="fastfetch"
 alias cl="clear"
 if status is-interactive
@@ -96,7 +96,12 @@ function vbuild --description "Build Verilog sim with Verilator (TestInfra)"
         $VERILOG_PIN/PinInRegister.v \
         $VERILOG_PIN/PinOutSampler.v \
         $VERILOG_PIN/PinOutRegister.v \
-        --exe $CPP_SIM/main.cpp $CPP_SRC/Ate.cpp \
+        --exe \
+        $CPP_SIM/main.cpp \
+        $CPP_SRC/Ate.cpp \
+        $CPP_SRC/Pattern.cpp \
+        $CPP_SRC/Timing.cpp \
+        $CPP_SRC/Waveform.cpp \
         --trace --trace-structs --trace-max-array 256 --trace-max-width 4096 \
         --build \
         --top-module Socket \

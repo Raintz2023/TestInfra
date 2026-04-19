@@ -1,6 +1,8 @@
 #pragma once
 
+#include "Timing.h"
 #include "VSocket.h"
+#include "Waveform.h"
 #include "verilated.h"
 #include "verilated_vcd_c.h"
 
@@ -67,6 +69,19 @@ struct SampleRecord {
     CompareSpec compare_spec = CompareSpec{};
 };
 
+struct InputPinConfig {
+    int lsb = 0;
+    int width = 1;
+    DriveWaveform waveform = DriveWaveform::nrz();
+    uint32_t default_value = 0;
+};
+
+struct OutputPinConfig {
+    int lsb = 0;
+    int width = 1;
+    uint32_t default_value = 0;
+};
+
 class ATE {
 public:
     // Basic socket geometry exposed to wrappers so customer-level protocols
@@ -75,8 +90,10 @@ public:
     // The default DEPTH is 32, so each pin's drive/sample offset field is 5 bits.
     static constexpr int kOffsetWidth = 5;
     static constexpr int kMaxOffset = (1 << kOffsetWidth) - 1;
-    static constexpr int kPinInCount = 29;
+    static constexpr int kPinInCount = 31;
     static constexpr int kPinOutCount = 19;
+    static constexpr int kClockPin = 29;
+    static constexpr int kResetPin = 30;
 
     explicit ATE(std::string wave_name = {},
                  bool trace_enable = true,
@@ -86,8 +103,40 @@ public:
 
     // Common external APIs: basic simulation lifecycle.
     void tick();
+    void advance_phase();
+    void advance_period();
     void run_cycles(uint32_t cycles);
     void reset();
+
+    // Common external APIs: cycle/phase timing set.
+    void set_timing(const TimingSet& timing);
+    TimingSet timing() const { return timing_; }
+    uint64_t phase() const { return phase_; }
+    uint32_t phase_in_period() const { return phase_in_period_; }
+    static int clock_pin() { return kClockPin; }
+    static int reset_pin() { return kResetPin; }
+
+    // Common external APIs: periodic RZZ waveform binding. CLK is just the
+    // default pin using this waveform and can be unbound by pattern code.
+    void bind_rzz_drive(int pin, DriveWaveform waveform = DriveWaveform::rzz());
+    void clear_rzz_drive(int pin);
+    void clear_rzz_drives();
+
+    // Common external APIs: vector-row input pin schema.
+    void clear_input_pin_configs();
+    void configure_input_pin(int lsb,
+                             int width,
+                             DriveWaveform waveform,
+                             uint32_t default_value = 0);
+    void begin_vector_row();
+    void activate_input_pin(int pin);
+    void set_input_field(int lsb, int width, uint32_t value);
+    void commit_vector_row();
+
+    // Common external APIs: vector-row output pin schema.
+    void clear_output_pin_configs();
+    void configure_output_pin(int lsb, int width, uint32_t default_value = 0);
+    void expect_output_field(int lsb, int width, uint32_t expected);
 
     // Common external APIs: clear currently staged drive/sample commands
     // before building the next custom operation.
@@ -99,7 +148,17 @@ public:
     // commands such as write/read/strobe/command packets.
     void stage_drive_pin(int pin, bool value, uint32_t delay = 0);
     void stage_drive_field(int lsb, int width, uint32_t value, uint32_t delay = 0);
+    void stage_drive_pin_wave(int pin,
+                              bool value,
+                              DriveWaveform waveform,
+                              uint32_t delay = 0);
+    void stage_drive_field_wave(int lsb,
+                                int width,
+                                uint32_t value,
+                                DriveWaveform waveform,
+                                uint32_t delay = 0);
     void pulse_drive();
+    void pulse_alert();
 
     // Common external APIs: sample first, then compare the saved sample history.
     void sample();
@@ -160,6 +219,11 @@ private:
     void pulse_driv_();
     void pulse_samp_();
     void capture_sample_if_ready_();
+    void apply_nrz_drives_();
+    void apply_rzz_drives_();
+    void drive_reset_pin_(bool value);
+    const InputPinConfig& input_pin_config_(int lsb, int width) const;
+    const OutputPinConfig& output_pin_config_(int lsb, int width) const;
     uint32_t aligned_compare_value_(const CompareSpec& spec) const;
     uint32_t compare_mask_(const CompareSpec& spec) const;
     bool sample_matches_(const SampleRecord& sample) const;
@@ -175,8 +239,19 @@ private:
     std::unique_ptr<VerilatedVcdC> tfp_;
 
     uint64_t clock_ = 0;
+    uint64_t phase_ = 0;
     uint64_t cycle_ = 0;
+    uint32_t phase_in_period_ = 0;
     uint32_t top_data_ = 0;
+    TimingSet timing_{};
+    uint32_t nrz_drive_mask_ = 0;
+    uint32_t nrz_drive_values_ = 0;
+    uint32_t nrz_pending_mask_ = 0;
+    uint32_t nrz_pending_values_ = 0;
+    uint32_t rzz_drive_mask_ = 0;
+    uint32_t rzz_default_values_ = 0;
+    std::vector<InputPinConfig> input_pin_configs_;
+    std::vector<OutputPinConfig> output_pin_configs_;
     std::deque<CompareSpec> pending_compare_specs_;
 
     SampleRecord last_sample_{};

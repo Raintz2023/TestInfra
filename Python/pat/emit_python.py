@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from pathlib import Path
+
 from Python.pat.cls import *
 from Python.pat.ir import *
 
@@ -9,30 +11,17 @@ def _def_map(def_list: list[DefCmd]) -> dict[str, DefCmd]:
 
 
 def _validate_defs(def_list: list[DefCmd]) -> None:
-    seen = set()
+    seen: set[str] = set()
     for def_cmd in def_list:
         if def_cmd.name in seen:
             raise ValueError(f"Duplicate DEF {def_cmd.name}")
         seen.add(def_cmd.name)
-
-        exp_roles = [role for role in def_cmd.roles if role.kind == "EXP"]
-        dly_roles = [role for role in def_cmd.roles if role.kind == "DLY"]
-        out_roles = [role for role in def_cmd.roles if role.kind == "O"]
-        if len(exp_roles) > 1:
-            raise ValueError(f"DEF {def_cmd.name} has more than one EXP")
-        if len(dly_roles) > 1:
-            raise ValueError(f"DEF {def_cmd.name} has more than one DLY")
-        if exp_roles and not out_roles:
-            raise ValueError(f"DEF {def_cmd.name} uses EXP without O field")
+        if any(role.kind != "PIN" for role in def_cmd.roles):
+            raise ValueError(f"DEF {def_cmd.name} uses unsupported legacy roles")
 
 
 def _expected_arg_count(def_cmd: DefCmd) -> int:
-    count = sum(1 for role in def_cmd.roles if role.kind == "I")
-    if def_cmd.has_exp():
-        count += 1
-    if def_cmd.has_dly():
-        count += 1
-    return count
+    return sum(1 for role in def_cmd.roles if role.needs_value)
 
 
 def _collect_vars(ir_list: list) -> list[str]:
@@ -47,76 +36,19 @@ def _collect_vars(ir_list: list) -> list[str]:
     return names
 
 
-def _helper_params(def_cmd: DefCmd) -> list[str]:
-    params = []
-    input_idx = 0
-    for role in def_cmd.roles:
-        if role.kind == "I":
-            params.append(f"v{input_idx}")
-            input_idx += 1
-    if def_cmd.has_exp():
-        params.append("exp")
-    if def_cmd.has_dly():
-        params.append("dly")
-    return params
-
-
 def _emit_helper(lines: list[str], def_cmd: DefCmd) -> None:
     fn_name = f"_cmd_{def_cmd.name.lower()}"
-    params = _helper_params(def_cmd)
-    signature = ", ".join(["ate_obj"] + params)
-    lines.append(f"def {fn_name}({signature}):")
-
-    has_dly = def_cmd.has_dly()
-    input_idx = 0
-    output_role = None
-    has_drive = False
-
-    for role in def_cmd.roles:
-        if role.kind == "E":
-            if has_dly:
-                lines.append(f"    ate_obj.stage_drive_pin({role.start}, True, delay=dly)")
-            else:
-                lines.append(f"    ate_obj.stage_drive_pin({role.start}, True)")
-            has_drive = True
-        elif role.kind == "I":
-            width = role.width()
-            arg = f"v{input_idx}"
-            input_idx += 1
-            if has_dly:
-                lines.append(
-                    f"    ate_obj.stage_drive_field({role.start}, {width}, {arg}, delay=dly)"
-                )
-            else:
-                lines.append(
-                    f"    ate_obj.stage_drive_field({role.start}, {width}, {arg})"
-                )
-            has_drive = True
-        elif role.kind == "O":
-            output_role = role
-
-    if has_drive:
-        lines.append("    ate_obj.pulse_drive()")
-
-    if output_role is not None and def_cmd.has_exp():
-        width = output_role.width()
-        lines.append("    ate_obj.set_top_data(exp)")
-        if has_dly:
-            lines.append(
-                f"    ate_obj.sample(ate.CompareSpec.field({output_role.start}, {width}, dly))"
-            )
-        else:
-            lines.append(
-                f"    ate_obj.sample(ate.CompareSpec.field({output_role.start}, {width}, 0))"
-            )
-
-    if not has_drive and output_role is None:
-        lines.append("    pass")
-
+    lines.append(f"def {fn_name}(ate_obj, schema, commands, *values):")
+    lines.append(f"    command = commands.command({def_cmd.name!r})")
+    lines.append("    first_pin = schema.pin(command.roles[0].pin_name)")
+    lines.append("    if first_pin.input:")
+    lines.append("        apply_command(ate_obj, schema, command, values)")
+    lines.append("    else:")
+    lines.append("        expect_command(ate_obj, schema, command, values)")
     lines.append("")
 
 
-def _emit_cmd_call(ins: CmdCall, defs: dict[str, DefCmd]) -> str:
+def _emit_cmd_call(ins: UserCmdCall, defs: dict[str, DefCmd]) -> str:
     if ins.name not in defs:
         return f"# TODO unsupported CMD: {ins.name} has no DEF"
     def_cmd = defs[ins.name]
@@ -129,23 +61,45 @@ def _emit_cmd_call(ins: CmdCall, defs: dict[str, DefCmd]) -> str:
 
     args = ", ".join(str(arg) for arg in ins.args)
     if args:
-        return f"_cmd_{ins.name.lower()}(ate_obj, {args})"
-    return f"_cmd_{ins.name.lower()}(ate_obj)"
+        return f"_cmd_{ins.name.lower()}(ate_obj, schema, commands, {args})"
+    return f"_cmd_{ins.name.lower()}(ate_obj, schema, commands)"
 
 
-def get_label_dict(ir_list:list):    
+def _emit_no_arg_system_cmd(ins: SystemCmd,
+                            timing_names: tuple[str, ...]) -> str | None:
+    emitters = {
+        "CPA": "compare_result = ate_obj.compare_all()",
+        "CPL": "compare_result = ate_obj.compare_last()",
+        "CCR": "ate_obj.clear_compare_results()",
+        "ALERT": "ate_obj.pulse_alert()",
+    }
+    if ins.name in emitters:
+        return emitters[ins.name]
+    if ins.name in timing_names:
+        return f"ate_obj.set_timing(timings[{ins.name!r}])"
+    return None
+
+
+def _emit_system_cmd(ins: SystemCmd,
+                     timing_names: tuple[str, ...]) -> tuple[str, bool, bool]:
+    """Return emitted source, whether it is a compare op, and whether it clears compares."""
+    if ins.args:
+        return f"# TODO unsupported SYSTEM CMD args: {ins.name} {ins.args}", False, False
+
+    emitted = _emit_no_arg_system_cmd(ins, timing_names)
+    if emitted is None:
+        return f"# TODO unsupported SYSTEM CMD: {ins.name}", False, False
+
+    return emitted, ins.name in {"CPA", "CPL"}, ins.name == "CCR"
+
+
+def get_label_dict(ir_list: list):
     key_ctrl_count = 0
     label_dict = {}
-    # print(ir_list)
     for ins in ir_list:
-        # print(ins)
         if isinstance(ins, CTRL) and not isinstance(ins, NO_CTRL):
             if ins.label != "NO_LABEL":
-                # print(ins.label)
-                # print(label_dict.keys())
-                # if ins.label in label_dict.keys():
-                #     raise LabelError(f"{ins.label} is duplicate, wrong label line number is {key_ctrl_count * 4}.")
-                label_dict[ins.label] = 12 * key_ctrl_count  # The reason for using 12 is that there are 12 valid statements in each CTRL block.
+                label_dict[ins.label] = 12 * key_ctrl_count
             key_ctrl_count += 1
     return label_dict
 
@@ -166,10 +120,7 @@ def find_duplicate_labels(label_dict_list: list[dict[str, int]]) -> list[str]:
     return duplicates
 
 
-def split_ir_list(ir_list:list):
-    """ 
-        Split the ir list according to RTN
-    """
+def split_ir_list(ir_list: list):
     pointer = 0
     pointer_list = [0]
     spliting_ir_list = []
@@ -177,19 +128,20 @@ def split_ir_list(ir_list:list):
         pointer += 1
         if isinstance(ins, RTN):
             pointer_list.append(pointer + 11)
-    for i in range(len(pointer_list)-1):
-        spliting_ir_list.append(ir_list[pointer_list[i]:pointer_list[i+1]])
+    for i in range(len(pointer_list) - 1):
+        spliting_ir_list.append(ir_list[pointer_list[i]:pointer_list[i + 1]])
     if not spliting_ir_list:
         raise RtnError("No RTN block in Pattern.")
     return spliting_ir_list
 
-def emit_python(testflow_list:list[Row], def_list:list[DefCmd], ir_list:list, out_path: str | Path, func_name: str = "run") -> None:
-    """
-    Convert testflow and ir list to python script
-    Supported:
-        TICK -> ate.tick()
-        MRW  -> ate.mr_write()
-    """
+
+def emit_python(testflow_list: list[Row],
+                def_list: list[DefCmd],
+                ir_list: list,
+                out_path: str | Path,
+                func_name: str = "run",
+                schema_module: str | None = None,
+                timing_names: tuple[str, ...] = ()) -> None:
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     defs = _def_map(def_list)
@@ -198,8 +150,13 @@ def emit_python(testflow_list:list[Row], def_list:list[DefCmd], ir_list:list, ou
     lines: list[str] = []
     lines.append("# Auto-generated. DO NOT EDIT.")
     lines.append("")
-    # lines.append("from ate import ATE")
     lines.append("import ate")
+    if schema_module is None:
+        raise RuntimeError("schema_module is required for generated patterns")
+    lines.append(
+        f"from Python.pat.generated.schema.{schema_module} import build_commands, build_schema, build_timings"
+    )
+    lines.append("from Python.pat.runtime import apply_command, expect_command, idle_row")
     lines.append("")
 
     for def_cmd in def_list:
@@ -210,152 +167,168 @@ def emit_python(testflow_list:list[Row], def_list:list[DefCmd], ir_list:list, ou
     lines.append(f"def {func_name}(ate_obj: ate.ATE, TESTFLOW=1, {defaults}):")
     lines.append("    T = 1")
     lines.append("    F = 0")
+    lines.append("    schema = build_schema()")
+    lines.append("    commands = build_commands()")
+    lines.append("    timings = build_timings()")
+    if "TS0" in timing_names:
+        lines.append("    if ate_obj.timing().name not in timings or ate_obj.timing().name == 'TS0':")
+        lines.append("        ate_obj.set_timing(timings['TS0'])")
+    lines.append("    schema.configure(ate_obj)")
 
-    # all_label_list and spliting_ir_list one by one
     spliting_label_list = []
-    # print(ir_list)
     spliting_ir_list = split_ir_list(ir_list)
-    # print(spliting_ir_list)
     for spliting_ir in spliting_ir_list:
         spliting_label_list.append(get_label_dict(spliting_ir))
     duplicate_labels = find_duplicate_labels(spliting_label_list)
     if duplicate_labels != []:
-        raise LabelError(f"{", ".join(duplicate_labels)} is duplicate.")
-        
-    # for i in range(len(all_label_list)):
-    #     trans_line(lines=lines, ir_list=spliting_ir_list[i], label_dict=all_label_list[i])
+        raise LabelError(f"{', '.join(duplicate_labels)} is duplicate.")
 
     testflow_num = []
     for testflow in testflow_list:
-        # 第一层循环：外部传入testflow num来控制执行
         if testflow.reg in testflow_num:
             raise TestflowNumError(f"Testflow number {testflow.reg} is duplicated")
         lines.append(f"    if TESTFLOW == {testflow.reg}:")
         for testflow_label in testflow.cmd2.split(','):
-            # 第二层循环： 该条testflow的所有label
             testflow_label_use_num = 0
             for i, label in enumerate(spliting_label_list):
-                # 第三层循环： 判断tf_label是否存在于spliting_label_list中，并获取label的pc以及对应的ir_list
                 if testflow_label in label.keys():
                     testflow_label_use_num += 1
                     pc_init = label[testflow_label]
-                    trans_line(pc_init, lines=lines, ir_list=spliting_ir_list[i], label_dict=label, defs=defs)
-                else:
-                    continue
+                    trans_line(pc_init,
+                               lines=lines,
+                               ir_list=spliting_ir_list[i],
+                               label_dict=label,
+                               defs=defs,
+                               timing_names=timing_names,
+                               stop_pc=None,
+                               indent_extra="")
             if testflow_label_use_num == 0:
                 raise UnknownTestflowLabelError(f"{testflow_label} cannot be found in testflow")
         testflow_num.append(testflow.reg)
 
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
+
 def ctrl_counter(pc, ctrl_count):
     if ctrl_count != 0:
-        raise CtrlError(f"{int((pc-1)/3)} line's CTRL block is not conform to the standard (4 Way).")
-    else:
-        ctrl_count += 3
+        raise CtrlError(f"{int((pc - 1) / 3)} line's CTRL block is not conform to the standard (4 Way).")
+    ctrl_count += 3
     return ctrl_count
 
-def trans_line(pc_init:int, lines:list, ir_list:list, label_dict:dict, defs:dict[str, DefCmd]):
+
+def trans_line(pc_init: int,
+               lines: list,
+               ir_list: list,
+               label_dict: dict,
+               defs: dict[str, DefCmd],
+               timing_names: tuple[str, ...] = (),
+               stop_pc: int | None = None,
+               indent_extra: str = ""):
     pc = pc_init
     ir_list_len = len(ir_list)
     cmd_count = 0
     ctrl_count = 0
     goto_count = 0
+    goto_times = 0
+    goto_start_pc = 0
     rtn_count = 0
     goto_target = ""
     compare_count = 0
     while True:
+        if stop_pc is not None and pc >= stop_pc:
+            break
         ins = ir_list[pc]
         pc += 1
         if pc == ir_list_len:
             break
-        #########################CMD#########################
+
         if isinstance(ins, TICK):
-            lines.append(f"{indent}ate_obj.tick()")
-            lines.append(f"{indent}ate_obj.tick()")
+            lines.append(f"{indent_extra}{indent}idle_row(ate_obj)")
             cmd_count += 1
 
-        elif isinstance(ins, CmdCall):
-            lines.append(f"{indent}{_emit_cmd_call(ins, defs)}")
+        elif isinstance(ins, UserCmdCall):
+            lines.append(f"{indent_extra}{indent}{_emit_cmd_call(ins, defs)}")
             cmd_count += 1
 
-        elif isinstance(ins, CPA):
-            compare_count += 1
-            lines.append(f"{indent}compare_result = ate_obj.compare_all()")
+        elif isinstance(ins, SystemCmd):
+            emitted, is_compare, clears_compare = _emit_system_cmd(ins, timing_names)
+            if is_compare:
+                compare_count += 1
+            if clears_compare:
+                compare_count = 0
+            lines.append(f"{indent_extra}{indent}{emitted}")
             cmd_count += 1
 
-        elif isinstance(ins, CPL):
-            compare_count += 1
-            lines.append(f"{indent}compare_result = ate_obj.compare_last()")
-            cmd_count += 1
-
-        elif isinstance(ins, CCR):
-            compare_count = 0
-            lines.append(f"{indent}ate_obj.clear_compare_results()")
-            cmd_count += 1
-
-        elif isinstance(ins, RST):
-            lines.append(f"{indent}ate_obj.reset()")
-            cmd_count += 1
-    
-        #########################REG#########################
         elif isinstance(ins, NO_REG):
             pass
 
         elif isinstance(ins, ASSIGN):
-            lines.append(f"{indent}{ins.name} = {ins.value}")
+            lines.append(f"{indent_extra}{indent}{ins.name} = {ins.value}")
 
-        #########################CTRL#########################
         elif isinstance(ins, NO_CTRL):
             ctrl_count -= 1
             if ctrl_count < 0:
-                raise CtrlError(f"{int((pc-1)/3)} line's CTRL block is not conform to the standard (4 Way).")
-            
+                raise CtrlError(f"{int((pc - 1) / 3)} line's CTRL block is not conform to the standard (4 Way).")
+
             if goto_count > 1:
                 goto_count -= 1
             elif goto_count == 1:
-                pc = label_dict[goto_target]
+                if isinstance(goto_times, int):
+                    pc = label_dict[goto_target]
+                else:
+                    if goto_target not in label_dict:
+                        raise UnknownTestflowLabelError(f"{goto_target} cannot be found in GOTO")
+                    lines.append(f"{indent_extra}        for _goto_i in range({goto_times}):")
+                    trans_line(label_dict[goto_target],
+                               lines=lines,
+                               ir_list=ir_list,
+                               label_dict=label_dict,
+                               defs=defs,
+                               timing_names=timing_names,
+                               stop_pc=goto_start_pc,
+                               indent_extra=indent_extra + "    ")
                 goto_count -= 1
 
             if rtn_count > 1:
                 rtn_count -= 1
             elif rtn_count == 1:
                 rtn_count -= 1
-                break  ### RTN终止当前翻译ir，结束
+                break
 
         elif isinstance(ins, NOP):
-            indent  = '        ' 
+            indent = '        '
             ctrl_count = ctrl_counter(pc, ctrl_count)
 
         elif isinstance(ins, RTN):
-            indent  = '        ' 
+            indent = '        '
             ctrl_count = ctrl_counter(pc, ctrl_count)
-            rtn_count = 3   # Complete the current RTN block
+            rtn_count = 3
 
         elif isinstance(ins, FOR):
-            indent  = '            '
+            indent = '            '
             ctrl_count = ctrl_counter(pc, ctrl_count)
-            lines.append(f"        for i in range({ins.times}):")
+            lines.append(f"{indent_extra}        for i in range({ins.times}):")
 
         elif isinstance(ins, GOTO):
-            indent  = '        '    
+            indent = '        '
             ctrl_count = ctrl_counter(pc, ctrl_count)
             goto_target = ins.target
-            times = ins.times
-            if times > 0:
+            goto_times = ins.times
+            goto_start_pc = pc - 1
+            if not isinstance(goto_times, int) or goto_times > 0:
                 if goto_target in list(label_dict.keys()):
-                    goto_count = 3   # Complete the current GOTO block
-                    ir_list[pc - 1] = ins.reduce_times()  # The count of current GOTO block reduce one
+                    goto_count = 3
+                    if isinstance(goto_times, int):
+                        ir_list[pc - 1] = ins.reduce_times()
 
         else:
-            lines.append(f"    # TODO unsupported IR: {ins!r}")
+            lines.append(f"{indent_extra}    # TODO unsupported IR: {ins!r}")
 
     if ctrl_count != 0:
-        raise CtrlError(f"{int((pc-1)/3)} line's CTRL block is not conform to the standard (4 Way).")
+        raise CtrlError(f"{int((pc - 1) / 3)} line's CTRL block is not conform to the standard (4 Way).")
 
     if cmd_count == 0:
-        # 避免空函数语法错误
-        lines.append("        pass")
+        lines.append(f"{indent_extra}        pass")
 
     if compare_count != 0:
-        lines.append("        return compare_result")
+        lines.append(f"{indent_extra}        return compare_result")

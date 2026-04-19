@@ -18,13 +18,21 @@ def main(argv=None) -> int:
     in_path = args.in_path
     out_path = args.out_path
 
-    testflow_list, def_list, ir_list = trans_pat(in_path)
+    testflow_list, def_list, ir_list, schema_module, timing_names = trans_pat(in_path)
 
     if not testflow_list and not def_list and not ir_list:
         print(f"[SKIP] {in_path} has no BEGIN/END compile block")
         return 0
 
-    emit_python(testflow_list, def_list, ir_list, out_path, func_name=args.func_name)
+    emit_python(
+        testflow_list,
+        def_list,
+        ir_list,
+        out_path,
+        func_name=args.func_name,
+        schema_module=schema_module,
+        timing_names=timing_names,
+    )
 
     print(f"[OK] {in_path} -> {out_path}  (IR={len(ir_list)})")
     return 0

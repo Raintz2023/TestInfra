@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import sys
 from pathlib import Path
 
 def get_ti_root() -> Path:
@@ -9,9 +10,14 @@ def get_ti_root() -> Path:
     return Path(ti)
 
 
-def load_pattern(pat_name):
+def load_pattern_module(pat_name):
     """Load a generated pattern module from the generated directory."""
-    generated_dir = get_ti_root() / "Python" / "pat" / "generated"
+    ti_root = get_ti_root()
+    ti_root_str = str(ti_root)
+    if ti_root_str not in sys.path:
+        sys.path.insert(0, ti_root_str)
+
+    generated_dir = ti_root / "Python" / "pat" / "generated"
     pattern_path = generated_dir / f"{pat_name}.py"
 
     if not pattern_path.is_file():
@@ -24,6 +30,13 @@ def load_pattern(pat_name):
 
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+
+    return mod
+
+
+def load_pattern(pat_name):
+    """Load the run() callable from a generated pattern module."""
+    mod = load_pattern_module(pat_name)
 
     run = getattr(mod, "run", None)
     if run is None:

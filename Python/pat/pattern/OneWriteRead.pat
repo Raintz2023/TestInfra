@@ -1,9 +1,11 @@
+USE ../dram
+
 BEGIN
       <1> START -> TRAINING -> STOP 
       <2> START -> TEST -> STOP 
       <3> START -> RESET -> STOP
 
-      INCLUDE ../def/DramPin
+
 
                   CTRL        |    REG          :                CMD             ;// This is a comment
                   ---------------------------------------------------------------------
@@ -11,8 +13,8 @@ BEGIN
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
-                  NOP         | ADDR =  0       : MRW < ADDR, 55     ;                 ; 
-                              | ADDR =  1       : MRW < ADDR, 54     ;                 ;
+                  NOP         | ADDR =  0       : MRWR < ADDR, 55    ;                 ; 
+                              | ADDR =  1       : MRWR < ADDR, 54    ;                 ;
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
                   FOR-0       |                 :                    ;                 ;// This is a comment
@@ -27,14 +29,14 @@ BEGIN
                               | ADDR = ADDR + 1 : WR < ADDR          ;                 ;
                               | ADDR = ADDR + 1 : WR < ADDR          ;                 ;
                               | ADDR = ADDR + 1 : WR < ADDR          ;                 ;
-                  FOR-4       |                 :                    ;                 ;
+                  FOR-X       |                 :                    ;                 ;
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
-                  NOP         |                 :                    ; DRV < DATA, X   ;
-                              |                 :                    ; DRV < DATA, X   ;
-                              |                 :                    ; DRV < DATA, X   ;
-                              |                 :                    ; DRV < DATA, X   ;
+                  NOP         |                 :                    ; DRV < DATA      ;
+                              |                 :                    ; DRV < DATA      ;
+                              |                 :                    ; DRV < DATA      ;
+                              |                 :                    ; DRV < DATA      ;
                   FOR-5       |                 :                    ;                 ;
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
@@ -55,14 +57,14 @@ BEGIN
                               | ADDR = ADDR + 1 : RD < ADDR          ;                 ;
                               | ADDR = ADDR + 1 : RD < ADDR          ;                 ;
                               | ADDR = ADDR + 1 : RD < ADDR          ;                 ;
-                  FOR-5       |                 :                    ;                 ;
+                  FOR-Y       |                 :                    ;                 ;
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
-                  NOP         |                 :                    ; SMP < DATA, Y   ;
-                              |                 :                    ; SMP < DATA, Y   ;
-                              |                 :                    ; SMP < DATA, Y   ;
-                              |                 :                    ; SMP < DATA, Y   ;
+                  NOP         |                 :                    ; SMP < DATA      ;
+                              |                 :                    ; SMP < DATA      ;
+                              |                 :                    ; SMP < DATA      ;
+                              |                 :                    ; SMP < DATA      ;
                   NOP         |                 :                    ;                 ;
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
@@ -89,8 +91,8 @@ BEGIN
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
-                  NOP         | ADDR =  0       : MRW < ADDR, 56     ;                 ; 
-                              | ADDR =  1       : MRW < ADDR, 54     ;                 ;
+                  NOP         | ADDR =  0       : MRWR < ADDR, 56    ;                 ; 
+                              | ADDR =  1       : MRWR < ADDR, 54    ;                 ;
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
                   FOR-0       |                 :                    ;                 ;// This is a comment
@@ -105,14 +107,14 @@ BEGIN
                               | ADDR = ADDR + 1 : WR < ADDR          ;                 ;
                               | ADDR = ADDR + 1 : WR < ADDR          ;                 ;
                               | ADDR = ADDR + 1 : WR < ADDR          ;                 ;
-                  FOR-4       |                 :                    ;                 ;
+                  FOR-X       |                 :                    ;                 ;
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
-                  NOP         |                 :                    ; DRV < DATA, X   ;
-                              |                 :                    ; DRV < DATA, X   ;
-                              |                 :                    ; DRV < DATA, X   ;
-                              |                 :                    ; DRV < DATA, X   ;
+                  NOP         |                 :                    ; DRV < DATA      ;
+                              |                 :                    ; DRV < DATA      ;
+                              |                 :                    ; DRV < DATA      ;
+                              |                 :                    ; DRV < DATA      ;
                   FOR-5       |                 :                    ;                 ;
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
@@ -133,14 +135,14 @@ BEGIN
                               | ADDR = ADDR + 1 : RD < ADDR          ;                 ;
                               | ADDR = ADDR + 1 : RD < ADDR          ;                 ;
                               | ADDR = ADDR + 1 : RD < ADDR          ;                 ;
-                  FOR-5       |                 :                    ;                 ;
+                  FOR-Y       |                 :                    ;                 ;
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
-                  NOP         |                 :                    ; SMP < DATA, Y   ;
-                              |                 :                    ; SMP < DATA, Y   ;
-                              |                 :                    ; SMP < DATA, Y   ;
-                              |                 :                    ; SMP < DATA, Y   ;
+                  NOP         |                 :                    ; SMP < DATA      ;
+                              |                 :                    ; SMP < DATA      ;
+                              |                 :                    ; SMP < DATA      ;
+                              |                 :                    ; SMP < DATA      ;
                   NOP         |                 :                    ;                 ;
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;

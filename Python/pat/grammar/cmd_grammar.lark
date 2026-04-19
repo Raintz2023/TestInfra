@@ -1,26 +1,25 @@
-?start: cmd
-      | reset
-      | compare_all
-      | compare_last
-      | clear_compare
+?start: user_cmd
+      | builtin_cmd
 
-cmd: NAME DIRECTION cmd_args?
-reset: "RST"
-compare_all: "CPA"
-compare_last: "CPL"
-clear_compare: "CCR"
+user_cmd: USER_NAME DIRECTION cmd_args?   -> directed_user_cmd
+        | USER_NAME                       -> bare_user_cmd
+
+builtin_cmd: SYSTEM_NAME system_cmd_args? -> system_cmd_call
+
+SYSTEM_NAME: "CPA" | "CPL" | "CCR" | "ALERT" | /TS[A-Z0-9_]*/
+USER_NAME: /[A-Z][A-Z0-9_]*/
 
 DIRECTION: "<" | ">"
-NAME: /[A-Z][A-Z0-9_]*/
 
 ?cmd_args: expr ("," expr)*
+?system_cmd_args: expr ("," expr)*
 
 ?expr: term
      | expr "+" term   -> add
 
 ?term: HEX           -> hex_lit
      | INT           -> int_lit
-     | NAME          -> var
+     | USER_NAME     -> var
 
 HEX: /0[xX][0-9a-fA-F]+/
 %import common.INT

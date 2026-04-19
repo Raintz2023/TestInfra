@@ -44,7 +44,7 @@ class RTN(CTRL):
 @dataclass(frozen=True)
 class FOR(CTRL):
     label: str | None = None
-    times: int = 0
+    times: int | str = 0
 
     def with_label(self, label: str) -> "FOR":
         return replace(self, label=label)
@@ -55,13 +55,15 @@ class FOR(CTRL):
 @dataclass(frozen=True)  # Fields cannot be modified after object creation.
 class GOTO(CTRL):
     label: str | None = None
-    times: int = 0
+    times: int | str = 0
     target:str = ""
 
     def with_label(self, label: str) -> "GOTO":
         return replace(self, label=label)
     
     def reduce_times(self) -> "GOTO":
+        if not isinstance(self.times, int):
+            return self
         return replace(self, times=self.times-1)
     
     def __repr__(self):
@@ -95,20 +97,14 @@ class ASSIGN(REG):
 @dataclass(frozen=True)
 class DefRole:
     kind: str
-    start: int | None = None
-    end: int | None = None
-
-    def width(self) -> int | None:
-        if self.start is None or self.end is None:
-            return None
-        return self.end - self.start + 1
+    name: str | None = None
+    needs_value: bool = False
 
     def __repr__(self):
-        if self.start is None:
-            return f"DEF.{self.kind}"
-        if self.end is None:
-            return f"DEF.{self.kind}{self.start}"
-        return f"DEF.{self.kind}{self.start}:{self.end}"
+        if self.name is not None:
+            suffix = "()" if self.needs_value else ""
+            return f"DEF.{self.kind}{suffix}({self.name})"
+        return f"DEF.{self.kind}"
 
 
 @dataclass(frozen=True)
@@ -116,14 +112,8 @@ class DefCmd:
     name: str
     roles: list[DefRole]
 
-    def has_output(self) -> bool:
-        return any(role.kind == "O" for role in self.roles)
-
-    def has_exp(self) -> bool:
-        return any(role.kind == "EXP" for role in self.roles)
-
-    def has_dly(self) -> bool:
-        return any(role.kind == "DLY" for role in self.roles)
+    def uses_named_roles(self) -> bool:
+        return any(role.kind == "PIN" for role in self.roles)
 
     def __repr__(self):
         return f"DEF.CMD(name={self.name}, roles={self.roles})"
@@ -142,30 +132,20 @@ class TICK(CMD):
         return "CMD.TICK"
 
 
-@dataclass(frozen=True)  # Fields cannot be modified after object creation.
-class CmdCall(CMD):
+@dataclass(frozen=True)
+class UserCmdCall(CMD):
     name: str
-    direction: str
+    direction: str | None
     args: list[str | int]
 
     def __repr__(self):
-        return f"CMD.CALL(name={self.name}, dir={self.direction}, args={self.args})"
+        return f"CMD.USER(name={self.name}, dir={self.direction}, args={self.args})"
 
 
-class CPA(CMD):
+@dataclass(frozen=True)
+class SystemCmd(CMD):
+    name: str
+    args: list[str | int]
+
     def __repr__(self):
-        return "CMD.CPA"
-
-
-class CPL(CMD):
-    def __repr__(self):
-        return "CMD.CPL"
-
-
-class CCR(CMD):
-    def __repr__(self):
-        return "CMD.CCR"
-    
-class RST(CMD):
-    def __repr__(self):
-        return f"CMD.RST"
+        return f"CMD.SYSTEM(name={self.name}, args={self.args})"

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 _RE_TESTFLOW_LINE = re.compile(r'^\s*<\s*(\d+)\s*>\s*(.+?)\s*$')
 _RE_VALID_NODE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')  # 你可按需放宽，比如允许 '-' 等
 _RE_INCLUDE_LINE = re.compile(r'^\s*INCLUDE\s+(.+?)\s*$')
+_RE_USE_LINE = re.compile(r'^\s*USE\s+(.+?)\s*$')
 
 
 @dataclass
@@ -17,6 +18,7 @@ class RawPat:
     testflows: list[Row]
     def_lines: list[str]
     rows: list[Row]
+    use_path: Path | None = None
 
 
 @dataclass
@@ -34,9 +36,18 @@ def _resolve_include_path(base_path: Path, include_target: str) -> Path:
     include_path = Path(include_target.strip())
     if include_path.suffix == "":
         include_path = include_path.with_suffix(".pat")
+    elif include_path.suffix in {".soc", ".cmd"}:
+        include_path = include_path.with_suffix(include_path.suffix + ".pat")
     if not include_path.is_absolute():
         include_path = base_path.parent / include_path
     return include_path.resolve()
+
+
+def _resolve_use_path(base_path: Path, use_target: str) -> Path:
+    use_path = Path(use_target.strip())
+    if not use_path.is_absolute():
+        use_path = base_path.parent / use_path
+    return use_path.resolve()
 
 
 def _expand_include_lines(pat_path: str | Path, stack: tuple[Path, ...] = ()) -> list[SourceLine]:
@@ -62,13 +73,14 @@ def _expand_include_lines(pat_path: str | Path, stack: tuple[Path, ...] = ()) ->
     return expanded_lines
 
 
-def _load_compile_lines(pat_path: str | Path) -> list[SourceLine]:
+def _load_compile_lines(pat_path: str | Path) -> tuple[list[SourceLine], Path | None]:
     path = Path(pat_path).resolve()
     if not path.is_file():
         raise FileNotFoundError(f"Pattern file not found: {path}")
 
     compile_lines: list[SourceLine] = []
     state = "before_begin"
+    use_path: Path | None = None
 
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines(True)
     for lineno, line in enumerate(lines, start=1):
@@ -77,8 +89,14 @@ def _load_compile_lines(pat_path: str | Path) -> list[SourceLine]:
         if state == "before_begin":
             if not raw:
                 continue
+            use_match = _RE_USE_LINE.match(raw)
+            if use_match is not None:
+                if use_path is not None:
+                    raise RuntimeError(f"Duplicate USE detected: {path}:{lineno}")
+                use_path = _resolve_use_path(path, use_match.group(1))
+                continue
             if raw != "BEGIN":
-                return []
+                return [], use_path
             state = "in_body"
             continue
 
@@ -91,6 +109,9 @@ def _load_compile_lines(pat_path: str | Path) -> list[SourceLine]:
             state = "after_end"
             continue
 
+        if _RE_USE_LINE.match(raw) is not None:
+            raise RuntimeError(f"USE must appear before BEGIN: {path}:{lineno}")
+
         match = _RE_INCLUDE_LINE.match(raw)
         if match is None:
             compile_lines.append(SourceLine(path=path, lineno=lineno, text=line))
@@ -100,11 +121,11 @@ def _load_compile_lines(pat_path: str | Path) -> list[SourceLine]:
         compile_lines.extend(_expand_include_lines(include_path, (path,)))
 
     if state == "before_begin":
-        return []
+        return [], use_path
     if state != "after_end":
         raise PatternEndError(str(path))
 
-    return compile_lines
+    return compile_lines, use_path
 
 def _parse_testflow(raw: str) -> Row | None:
     """
@@ -187,9 +208,10 @@ def parse_pat_row(line: str) -> Row | None:
 
     return Row({"ctrl": labeled_ctrl, "reg": reg, "cmd1": cmd1, "cmd2": cmd2})
 
-def read_pat(pat_path:str) -> list[Row]:
-    raw_pat = RawPat(testflows=[], def_lines=[], rows=[])
-    for source_line in _load_compile_lines(pat_path):
+def read_pat(pat_path:str):
+    compile_lines, use_path = _load_compile_lines(pat_path)
+    raw_pat = RawPat(testflows=[], def_lines=[], rows=[], use_path=use_path)
+    for source_line in compile_lines:
         line = source_line.text
         raw = _strip_comment(line)
         if not raw:
@@ -207,8 +229,3 @@ def read_pat(pat_path:str) -> list[Row]:
             raw_pat.rows.append(row)
 
     return raw_pat
-
-
-if __name__ == "__main__":
-    pat = read_pat("Python/pat/pattern/OneWriteRead.pat")
-    print(len(pat.testflows), len(pat.def_lines), len(pat.rows))
