@@ -9,7 +9,8 @@ def Train(ctx: PatContext,
           top_data:int=0,
           x_range:str='',
           y_range:str='',
-          timing_name:str=''):
+          timing_name:str='',
+          trace_enable:bool=True):
 
 
     xr = parse_range(x_range)
@@ -31,7 +32,7 @@ def Train(ctx: PatContext,
 
             ate = ATE(
                 wave_name=wave_name,
-                trace_enable=True,
+                trace_enable=trace_enable,
                 top_data_init=top_data
             )
 
