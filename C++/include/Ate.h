@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AteSocketConfig.h"
 #include "Timing.h"
 #include "VSocket.h"
 #include "Waveform.h"
@@ -84,16 +85,12 @@ struct OutputPinConfig {
 
 class ATE {
 public:
-    // Basic socket geometry exposed to wrappers so customer-level protocols
-    // can build on top of the generic ATE primitives.
-    // Keep this aligned with Verilog Socket.v OFFSET_W = $clog2(DEPTH).
-    // The default DEPTH is 32, so each pin's drive/sample offset field is 5 bits.
-    static constexpr int kOffsetWidth = 5;
+    // Socket geometry is generated from pinmap/config so the ATE engine does
+    // not silently bake in one DUT's pin shape.
+    static constexpr int kOffsetWidth = AteSocketConfig::kOffsetWidth;
     static constexpr int kMaxOffset = (1 << kOffsetWidth) - 1;
-    static constexpr int kPinInCount = 31;
-    static constexpr int kPinOutCount = 19;
-    static constexpr int kClockPin = 29;
-    static constexpr int kResetPin = 30;
+    static constexpr int kPinInCount = AteSocketConfig::kPinInCount;
+    static constexpr int kPinOutCount = AteSocketConfig::kPinOutCount;
 
     explicit ATE(std::string wave_name = {},
                  bool trace_enable = true,
@@ -113,11 +110,19 @@ public:
     TimingSet timing() const { return timing_; }
     uint64_t phase() const { return phase_; }
     uint32_t phase_in_period() const { return phase_in_period_; }
-    static int clock_pin() { return kClockPin; }
-    static int reset_pin() { return kResetPin; }
 
-    // Common external APIs: periodic RZZ waveform binding. CLK is just the
-    // default pin using this waveform and can be unbound by pattern code.
+    // Common external APIs: vector-row waveform binding. Pins get their
+    // waveform behavior from schema/configuration, not from special pin names.
+    void bind_drive_pin_wave(int pin,
+                             bool value,
+                             DriveWaveform waveform,
+                             uint32_t delay = 0);
+    void bind_drive_field_wave(int lsb,
+                               int width,
+                               uint32_t value,
+                               DriveWaveform waveform,
+                               uint32_t delay = 0);
+    void bind_nrz_drive(int pin, bool value);
     void bind_rzz_drive(int pin, DriveWaveform waveform = DriveWaveform::rzz());
     void clear_rzz_drive(int pin);
     void clear_rzz_drives();
@@ -221,7 +226,6 @@ private:
     void capture_sample_if_ready_();
     void apply_nrz_drives_();
     void apply_rzz_drives_();
-    void drive_reset_pin_(bool value);
     const InputPinConfig& input_pin_config_(int lsb, int width) const;
     const OutputPinConfig& output_pin_config_(int lsb, int width) const;
     uint32_t aligned_compare_value_(const CompareSpec& spec) const;

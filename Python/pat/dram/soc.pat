@@ -16,3 +16,5 @@ SOCKET
     PIN DQ_OE        = O17    = [STB] 0
     PIN DQ_OUT_VALID = O18    = [STB] 0
 END
+
+PIN 

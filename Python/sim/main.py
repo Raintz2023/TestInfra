@@ -15,7 +15,7 @@ def get_ti_root() -> Path:
 def load_pattern(pat_name):
     ''' Dynamic Import Pattern '''
     try:
-        module_name = f"Python.pat.generated.{pat_name}"
+        module_name = f"Python.pat.generated.run.{pat_name}"
         mod = importlib.import_module(module_name)
         return mod.run
     except ModuleNotFoundError:

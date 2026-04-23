@@ -65,6 +65,21 @@ class CommandSet:
             raise KeyError(f"unknown command: {name}") from exc
 
 
+def run_command(
+    ate_obj: ate.ATE,
+    schema: SocSchema,
+    commands: CommandSet,
+    name: str,
+    values: Iterable[int] = (),
+) -> None:
+    command = commands.command(name)
+    first_pin = schema.pin(command.roles[0].pin_name)
+    if first_pin.input:
+        apply_command(ate_obj, schema, command, values)
+    else:
+        expect_command(ate_obj, schema, command, values)
+
+
 def apply_command(
     ate_obj: ate.ATE,
     schema: SocSchema,
@@ -97,6 +112,11 @@ def apply_command(
 def idle_row(ate_obj: ate.ATE) -> None:
     ate_obj.begin_vector_row()
     ate_obj.commit_vector_row()
+
+
+def idle(ate_obj: ate.ATE, rows: int = 1) -> None:
+    for _ in range(rows):
+        idle_row(ate_obj)
 
 
 def expect_command(

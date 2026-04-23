@@ -1,98 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 import re
 
-from lark import Transformer, v_args
-
 from Python.pat.ir import DefCmd, DefRole
 from Python.pat.parser import parse_def, parse_tim
-
-_PIN_IN_COUNT = 31
-_PIN_OUT_COUNT = 19
-_SUPPORTED_INPUT_WAVEFORMS = {"NRZ", "RZZ"}
-_SUPPORTED_OUTPUT_WAVEFORMS = {"STB"}
-
-_PIN_LINE_RE = re.compile(
-    r"^\s*PIN\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([IO])(\d+)(?::(\d+))?\s*=\s*\[([A-Za-z_][A-Za-z0-9_]*)\]\s*([^\s]+)\s*$"
-)
-
-
-@dataclass(frozen=True)
-class SchemaPin:
-    name: str
-    input: bool
-    lsb: int
-    width: int
-    waveform: str
-    default_value: int
-
-
-@dataclass(frozen=True)
-class CompiledSchema:
-    module_name: str
-    def_cmds: list[DefCmd]
-    timing_names: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class SchemaTiming:
-    name: str
-    period_phases: int
-    nrz_rise_phase: int
-    rzz_rise_phase: int
-    rzz_fall_phase: int
-    sample_phase: int
-
-
-@v_args(inline=True)
-class _DefToIR(Transformer):
-    def NAME(self, t): return t.value
-    def pin_role(self, name): return DefRole("PIN", name=str(name), needs_value=False)
-    def value_pin_role(self, name): return DefRole("PIN", name=str(name), needs_value=True)
-    def def_stmt(self, name, *roles): return DefCmd(name=name, roles=list(roles))
-
-
-@v_args(inline=True)
-class _TimToIR(Transformer):
-    def NAME(self, t): return t.value
-    def INT(self, t): return int(t)
-
-    def period_spec(self, period_phases):
-        return ("period_phases", int(period_phases))
-
-    def nrz_spec(self, nrz_rise_phase):
-        return ("nrz_rise_phase", int(nrz_rise_phase))
-
-    def rzz_spec(self, rzz_rise_phase, rzz_fall_phase):
-        return ("rzz_rise_phase", int(rzz_rise_phase)), ("rzz_fall_phase", int(rzz_fall_phase))
-
-    def stb_spec(self, sample_phase):
-        return ("sample_phase", int(sample_phase))
-
-    def timing_set(self, name, *phase_specs):
-        fields: dict[str, int] = {}
-        for phase_spec in phase_specs:
-            if isinstance(phase_spec, tuple) and len(phase_spec) == 2 and isinstance(phase_spec[0], str):
-                key, value = phase_spec
-                if key in fields:
-                    raise RuntimeError(f"Duplicate timing phase {key} in {name}")
-                fields[key] = value
-                continue
-            for key, value in phase_spec:
-                if key in fields:
-                    raise RuntimeError(f"Duplicate timing phase {key} in {name}")
-                fields[key] = value
-
-        return SchemaTiming(
-            name=str(name),
-            period_phases=fields["period_phases"],
-            nrz_rise_phase=fields["nrz_rise_phase"],
-            rzz_rise_phase=fields["rzz_rise_phase"],
-            rzz_fall_phase=fields["rzz_fall_phase"],
-            sample_phase=fields["sample_phase"],
-        )
+from Python.pat.core.schema_types import CompiledSchema, SchemaPin, SchemaTiming
+from Python.pat.transform.defn import DefToIR
+from Python.pat.transform.soc import parse_soc_file
+from Python.pat.transform.tim import TimToIR
 
 
 def _sanitize_module_name(name: str) -> str:
@@ -119,77 +35,6 @@ def _discover_schema_files(schema_dir: str | Path) -> tuple[Path, Path, Path]:
     return soc_path, cmd_path, tim_path
 
 
-def _parse_soc_file(soc_path: Path) -> list[SchemaPin]:
-    pins: list[SchemaPin] = []
-    names: set[str] = set()
-    in_socket = False
-    input_ranges: list[tuple[int, int, str]] = []
-    output_ranges: list[tuple[int, int, str]] = []
-
-    for lineno, line in enumerate(soc_path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
-        raw = line.split("//")[0].strip()
-        if not raw:
-            continue
-        if raw == "SOCKET":
-            in_socket = True
-            continue
-        if raw == "END":
-            break
-        if not in_socket:
-            continue
-
-        match = _PIN_LINE_RE.match(raw)
-        if match is None:
-            raise RuntimeError(f"Unsupported SOC line: {soc_path}:{lineno}: {raw}")
-
-        name, io_kind, start, end, waveform, default_text = match.groups()
-        if name in names:
-            raise RuntimeError(f"Duplicate SOC pin {name}: {soc_path}:{lineno}")
-        names.add(name)
-
-        lsb = int(start)
-        msb = int(end) if end is not None else lsb
-        width = msb - lsb + 1
-        if width <= 0:
-            raise RuntimeError(f"Invalid pin range for {name}: {soc_path}:{lineno}")
-        pin_count = _PIN_IN_COUNT if io_kind == "I" else _PIN_OUT_COUNT
-        if msb >= pin_count:
-            raise RuntimeError(f"Pin {name} range out of bounds: {soc_path}:{lineno}")
-        default_value = int(default_text, 0)
-        if width < 32 and default_value >= (1 << width):
-            raise RuntimeError(f"Pin {name} default value does not fit width: {soc_path}:{lineno}")
-
-        waveform = waveform.upper()
-        if io_kind == "I" and waveform not in _SUPPORTED_INPUT_WAVEFORMS:
-            raise RuntimeError(f"Unsupported input waveform {waveform} for {name}: {soc_path}:{lineno}")
-        if io_kind == "O" and waveform not in _SUPPORTED_OUTPUT_WAVEFORMS:
-            raise RuntimeError(f"Unsupported output waveform {waveform} for {name}: {soc_path}:{lineno}")
-
-        current_range = (lsb, msb, name)
-        existing_ranges = input_ranges if io_kind == "I" else output_ranges
-        for exist_lsb, exist_msb, exist_name in existing_ranges:
-            if lsb <= exist_msb and exist_lsb <= msb:
-                raise RuntimeError(
-                    f"Pin {name} overlaps {exist_name}: {soc_path}:{lineno}"
-                )
-        existing_ranges.append(current_range)
-
-        pins.append(
-            SchemaPin(
-                name=name,
-                input=(io_kind == "I"),
-                lsb=lsb,
-                width=width,
-                waveform=waveform,
-                default_value=default_value,
-            )
-        )
-
-    if not pins:
-        raise RuntimeError(f"No PIN definitions found in {soc_path}")
-    return pins
-
-
 def _parse_cmd_file(cmd_path: Path) -> list[DefCmd]:
     def_cmds: list[DefCmd] = []
     in_command = False
@@ -208,7 +53,7 @@ def _parse_cmd_file(cmd_path: Path) -> list[DefCmd]:
         if not raw.startswith("DEF "):
             raise RuntimeError(f"Unsupported CMD line: {cmd_path}:{lineno}: {raw}")
         tree = parse_def(raw)
-        def_cmds.append(_DefToIR().transform(tree))
+        def_cmds.append(DefToIR().transform(tree))
 
     if not def_cmds:
         raise RuntimeError(f"No DEF definitions found in {cmd_path}")
@@ -234,7 +79,7 @@ def _parse_tim_file(tim_path: Path) -> list[SchemaTiming]:
 
         try:
             tree = parse_tim(raw)
-            timing = _TimToIR().transform(tree)
+            timing = TimToIR().transform(tree)
         except Exception as exc:
             raise RuntimeError(f"Unsupported TIM line: {tim_path}:{lineno}: {raw}") from exc
 
@@ -329,7 +174,7 @@ def _emit_schema_module(schema_path: Path,
                         def_cmds: list[DefCmd],
                         timings: list[SchemaTiming]) -> str:
     module_name = _sanitize_module_name(schema_path.name)
-    out_dir = Path(__file__).resolve().parent / "generated" / "schema"
+    out_dir = Path(__file__).resolve().parents[1] / "generated" / "schema"
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "__init__.py").write_text("", encoding="utf-8")
 
@@ -383,7 +228,7 @@ def _emit_schema_module(schema_path: Path,
 def compile_schema(schema_dir: str | Path) -> CompiledSchema:
     schema_path = Path(schema_dir).resolve()
     soc_path, cmd_path, tim_path = _discover_schema_files(schema_path)
-    pins = _parse_soc_file(soc_path)
+    pins = parse_soc_file(soc_path)
     def_cmds = _parse_cmd_file(cmd_path)
     timings = _parse_tim_file(tim_path)
     _validate_named_defs(pins, def_cmds, cmd_path)

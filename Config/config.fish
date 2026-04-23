@@ -45,6 +45,7 @@ set -gx VERILOG_SIM $VERILOG/sim
 # -------- C++ --------
 set -gx CPP $TI/C++
 set -gx CPP_INC $CPP/include
+set -gx CPP_GEN $CPP/generated
 set -gx CPP_SRC $CPP/src
 set -gx CPP_SIM $CPP/sim
 set -gx CPP_BUILD $CPP/build
@@ -68,14 +69,14 @@ set -gx PYTHONPATH $PYTHON_LIBS $PYTHONPATH
 function vbuild --description "Build Verilog sim with Verilator (TestInfra)"
 
     # Build the Verilator sim directly from the current C++ workspace layout.
-    for v in VERILOG_ATE VERILOG_DUT VERILOG_PIN CPP CPP_INC CPP_SRC CPP_SIM
+    for v in VERILOG_ATE VERILOG_DUT VERILOG_PIN CPP CPP_INC CPP_GEN CPP_SRC CPP_SIM
         if not set -q $v
             echo "vbuild: missing env var '$v' (e.g. set -x $v /path/to/...)" >&2
             return 2
         end
     end
 
-    for d in $VERILOG_ATE $VERILOG_DUT $VERILOG_PIN $CPP $CPP_INC $CPP_SRC $CPP_SIM
+    for d in $VERILOG_ATE $VERILOG_DUT $VERILOG_PIN $CPP $CPP_INC $CPP_GEN $CPP_SRC $CPP_SIM
         if not test -d $d
             echo "vbuild: directory not found: $d" >&2
             return 2
@@ -99,13 +100,12 @@ function vbuild --description "Build Verilog sim with Verilator (TestInfra)"
         --exe \
         $CPP_SIM/main.cpp \
         $CPP_SRC/Ate.cpp \
-        $CPP_SRC/Pattern.cpp \
         $CPP_SRC/Timing.cpp \
         $CPP_SRC/Waveform.cpp \
         --trace --trace-structs --trace-max-array 256 --trace-max-width 4096 \
         --build \
         --top-module Socket \
-        -CFLAGS "-std=c++20 -I$CPP_INC -fPIC"
+        -CFLAGS "-std=c++20 -I$CPP_INC -I$CPP_GEN -fPIC"
 
     set -l rc $status
     popd >/dev/null
@@ -114,7 +114,7 @@ end
 
 function cbuild --description "Build Cpp sim with pybind11 using CMake (TestInfra)"
     # 必要环境变量检查
-    for v in CPP CPP_SIM CPP_SRC CPP_INC CPP_BUILD TI_PYTHON_BIN
+    for v in CPP CPP_SIM CPP_SRC CPP_INC CPP_GEN CPP_BUILD TI_PYTHON_BIN
         if not set -q $v
             echo "cbuild: missing env var '$v' (e.g. set -x $v /path/to/...)" >&2
             return 2
@@ -148,15 +148,15 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
         return 2
     end
 
-    command mkdir -p $PYTHON_PAT_GEN
+    command mkdir -p $PYTHON_PAT_GEN/run
 
     function __pbuild_compile_one --no-scope-shadowing
         set -l in_file $argv[1]
         set -l stem $argv[2]
-        set -l out_file "$PYTHON_PAT_GEN/$stem.py"
+        set -l out_file "$PYTHON_PAT_GEN/run/$stem.py"
 
         pushd $TI >/dev/null
-        command $TI_PYTHON_BIN -m Python.pat.cli --in "$in_file" --out "$out_file"
+        command $TI_PYTHON_BIN -m Python.pat.core.cli --in "$in_file" --out "$out_file"
         set -l rc $status
         popd >/dev/null
 

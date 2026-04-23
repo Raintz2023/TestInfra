@@ -1,7 +1,8 @@
-# Used to store some simple package class.
+from __future__ import annotations
+
 
 class Row:
-    def __init__(self, row:dict) -> None:
+    def __init__(self, row: dict) -> None:
         self.ctrl = row["ctrl"]
         self.reg = row["reg"]
         self.cmd1 = row["cmd1"]
@@ -74,6 +75,7 @@ class EmptyTestflowError(TestflowError):
 class UnknownTestflowLabelError(TestflowError):
     default_msg = "Testflow references an unknown label"
     kind = "testflow_unknown_label"
+
 
 class TestflowNumError(TestflowError):
     default_msg = "The testflow number is duplicated"

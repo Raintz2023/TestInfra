@@ -44,6 +44,8 @@ venv/
 .mypy_cache/
 *.pyi
 generated/
+!C++/generated/
+!C++/generated/AteSocketConfig.h
 
 # ===== CMake / Ninja =====
 CMakeFiles/

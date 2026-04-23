@@ -29,6 +29,11 @@ _TIM_PARSER = Lark(
     parser="lalr"
 )
 
+_SOC_PARSER = Lark(
+    (GRAMMAR_DIR / "soc_grammar.lark").read_text(encoding="utf-8"),
+    parser="lalr"
+)
+
 def parse_cmd(cmd_text: str):
     return _CMD_PARSER.parse(cmd_text)
 
@@ -43,6 +48,9 @@ def parse_ctrl(reg_text: str):
 
 def parse_tim(tim_text: str):
     return _TIM_PARSER.parse(tim_text)
+
+def parse_soc(soc_text: str):
+    return _SOC_PARSER.parse(soc_text)
 
 if __name__ == "__main__":
     print(Path(__file__))

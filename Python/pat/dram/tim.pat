@@ -1,5 +1,5 @@
 TIMING
     SET TS0 = [PRD 10] [NRZ 1] [RZZ 2 7] [STB 8]
     SET TS1 = [PRD 20] [NRZ 2] [RZZ 4 14] [STB 16]
-
+    
 END

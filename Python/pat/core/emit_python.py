@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from Python.pat.cls import *
+from Python.pat.core.types import *
 from Python.pat.ir import *
 
 
@@ -36,18 +36,6 @@ def _collect_vars(ir_list: list) -> list[str]:
     return names
 
 
-def _emit_helper(lines: list[str], def_cmd: DefCmd) -> None:
-    fn_name = f"_cmd_{def_cmd.name.lower()}"
-    lines.append(f"def {fn_name}(ate_obj, schema, commands, *values):")
-    lines.append(f"    command = commands.command({def_cmd.name!r})")
-    lines.append("    first_pin = schema.pin(command.roles[0].pin_name)")
-    lines.append("    if first_pin.input:")
-    lines.append("        apply_command(ate_obj, schema, command, values)")
-    lines.append("    else:")
-    lines.append("        expect_command(ate_obj, schema, command, values)")
-    lines.append("")
-
-
 def _emit_cmd_call(ins: UserCmdCall, defs: dict[str, DefCmd]) -> str:
     if ins.name not in defs:
         return f"# TODO unsupported CMD: {ins.name} has no DEF"
@@ -61,8 +49,8 @@ def _emit_cmd_call(ins: UserCmdCall, defs: dict[str, DefCmd]) -> str:
 
     args = ", ".join(str(arg) for arg in ins.args)
     if args:
-        return f"_cmd_{ins.name.lower()}(ate_obj, schema, commands, {args})"
-    return f"_cmd_{ins.name.lower()}(ate_obj, schema, commands)"
+        return f"cmd({ins.name!r}, {args})"
+    return f"cmd({ins.name!r})"
 
 
 def _emit_no_arg_system_cmd(ins: SystemCmd,
@@ -156,11 +144,8 @@ def emit_python(testflow_list: list[Row],
     lines.append(
         f"from Python.pat.generated.schema.{schema_module} import build_commands, build_schema, build_timings"
     )
-    lines.append("from Python.pat.runtime import apply_command, expect_command, idle_row")
+    lines.append("from Python.pat.runtime import idle, run_command")
     lines.append("")
-
-    for def_cmd in def_list:
-        _emit_helper(lines, def_cmd)
 
     vars_ = _collect_vars(ir_list)
     defaults = ", ".join(f"{name}=0" for name in vars_)
@@ -170,6 +155,8 @@ def emit_python(testflow_list: list[Row],
     lines.append("    schema = build_schema()")
     lines.append("    commands = build_commands()")
     lines.append("    timings = build_timings()")
+    lines.append("    def cmd(name, *values):")
+    lines.append("        run_command(ate_obj, schema, commands, name, values)")
     if "TS0" in timing_names:
         lines.append("    if ate_obj.timing().name not in timings or ate_obj.timing().name == 'TS0':")
         lines.append("        ate_obj.set_timing(timings['TS0'])")
@@ -234,6 +221,15 @@ def trans_line(pc_init: int,
     rtn_count = 0
     goto_target = ""
     compare_count = 0
+    pending_idle_count = 0
+
+    def flush_idle() -> None:
+        nonlocal pending_idle_count
+        if pending_idle_count == 0:
+            return
+        lines.append(f"{indent_extra}{indent}idle(ate_obj, {pending_idle_count})")
+        pending_idle_count = 0
+
     while True:
         if stop_pc is not None and pc >= stop_pc:
             break
@@ -243,14 +239,16 @@ def trans_line(pc_init: int,
             break
 
         if isinstance(ins, TICK):
-            lines.append(f"{indent_extra}{indent}idle_row(ate_obj)")
+            pending_idle_count += 1
             cmd_count += 1
 
         elif isinstance(ins, UserCmdCall):
+            flush_idle()
             lines.append(f"{indent_extra}{indent}{_emit_cmd_call(ins, defs)}")
             cmd_count += 1
 
         elif isinstance(ins, SystemCmd):
+            flush_idle()
             emitted, is_compare, clears_compare = _emit_system_cmd(ins, timing_names)
             if is_compare:
                 compare_count += 1
@@ -263,6 +261,7 @@ def trans_line(pc_init: int,
             pass
 
         elif isinstance(ins, ASSIGN):
+            flush_idle()
             lines.append(f"{indent_extra}{indent}{ins.name} = {ins.value}")
 
         elif isinstance(ins, NO_CTRL):
@@ -273,6 +272,7 @@ def trans_line(pc_init: int,
             if goto_count > 1:
                 goto_count -= 1
             elif goto_count == 1:
+                flush_idle()
                 if isinstance(goto_times, int):
                     pc = label_dict[goto_target]
                 else:
@@ -292,24 +292,29 @@ def trans_line(pc_init: int,
             if rtn_count > 1:
                 rtn_count -= 1
             elif rtn_count == 1:
+                flush_idle()
                 rtn_count -= 1
                 break
 
         elif isinstance(ins, NOP):
+            flush_idle()
             indent = '        '
             ctrl_count = ctrl_counter(pc, ctrl_count)
 
         elif isinstance(ins, RTN):
+            flush_idle()
             indent = '        '
             ctrl_count = ctrl_counter(pc, ctrl_count)
             rtn_count = 3
 
         elif isinstance(ins, FOR):
+            flush_idle()
             indent = '            '
             ctrl_count = ctrl_counter(pc, ctrl_count)
             lines.append(f"{indent_extra}        for i in range({ins.times}):")
 
         elif isinstance(ins, GOTO):
+            flush_idle()
             indent = '        '
             ctrl_count = ctrl_counter(pc, ctrl_count)
             goto_target = ins.target
@@ -322,7 +327,10 @@ def trans_line(pc_init: int,
                         ir_list[pc - 1] = ins.reduce_times()
 
         else:
+            flush_idle()
             lines.append(f"{indent_extra}    # TODO unsupported IR: {ins!r}")
+
+    flush_idle()
 
     if ctrl_count != 0:
         raise CtrlError(f"{int((pc - 1) / 3)} line's CTRL block is not conform to the standard (4 Way).")

@@ -1,7 +1,7 @@
 from pathlib import Path
 from Python.pat.ir import *
-from Python.pat.cls import *
-from Python.pat.tools import _count_label_in_ctrl
+from Python.pat.core.types import *
+from Python.pat.core.row_utils import count_label_in_ctrl
 
 import re
 from dataclasses import dataclass
@@ -186,7 +186,7 @@ def parse_pat_row(line: str) -> Row | None:
     left, right = raw.split("|", 1)
 
     ctrl = left.strip()
-    label_num = _count_label_in_ctrl(ctrl)
+    label_num = count_label_in_ctrl(ctrl)
     if label_num == 1:
         label, ctrl = [c.strip() for c in ctrl.split("#")]
         if not label:

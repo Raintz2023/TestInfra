@@ -17,7 +17,7 @@ def load_pattern_module(pat_name):
     if ti_root_str not in sys.path:
         sys.path.insert(0, ti_root_str)
 
-    generated_dir = ti_root / "Python" / "pat" / "generated"
+    generated_dir = ti_root / "Python" / "pat" / "generated" / "run"
     pattern_path = generated_dir / f"{pat_name}.py"
 
     if not pattern_path.is_file():
