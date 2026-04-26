@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from Python.pat.core.types import Row
+from Python.pat.compiler.types import Row
 
 
 def cmd_texts_from_row(row: Row) -> list[str]:

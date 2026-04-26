@@ -1,7 +1,7 @@
 from pathlib import Path
-from Python.pat.ir import *
-from Python.pat.core.types import *
-from Python.pat.core.row_utils import count_label_in_ctrl
+from Python.pat.compiler.ir import *
+from Python.pat.compiler.row_utils import count_label_in_ctrl
+from Python.pat.compiler.types import *
 
 import re
 from dataclasses import dataclass

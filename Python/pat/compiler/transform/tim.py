@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from lark import Transformer, v_args
 
-from Python.pat.core.schema_types import SchemaTiming
+from Python.pat.compiler.definitions import TimingDef
 
 
 @v_args(inline=True)
@@ -16,8 +16,11 @@ class TimToIR(Transformer):
     def nrz_spec(self, nrz_rise_phase):
         return ("nrz_rise_phase", int(nrz_rise_phase))
 
-    def rzz_spec(self, rzz_rise_phase, rzz_fall_phase):
-        return ("rzz_rise_phase", int(rzz_rise_phase)), ("rzz_fall_phase", int(rzz_fall_phase))
+    def rzz_rise_spec(self, rzz_rise_phase):
+        return ("rzz_rise_phase", int(rzz_rise_phase))
+
+    def rzz_fall_spec(self, rzz_fall_phase):
+        return ("rzz_fall_phase", int(rzz_fall_phase))
 
     def stb_spec(self, sample_phase):
         return ("sample_phase", int(sample_phase))
@@ -36,7 +39,7 @@ class TimToIR(Transformer):
                     raise RuntimeError(f"Duplicate timing phase {key} in {name}")
                 fields[key] = value
 
-        return SchemaTiming(
+        return TimingDef(
             name=str(name),
             period_phases=fields["period_phases"],
             nrz_rise_phase=fields["nrz_rise_phase"],
@@ -44,3 +47,6 @@ class TimToIR(Transformer):
             rzz_fall_phase=fields["rzz_fall_phase"],
             sample_phase=fields["sample_phase"],
         )
+
+    def timing_block(self, *timings):
+        return list(timings)

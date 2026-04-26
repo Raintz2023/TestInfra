@@ -156,7 +156,7 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
         set -l out_file "$PYTHON_PAT_GEN/run/$stem.py"
 
         pushd $TI >/dev/null
-        command $TI_PYTHON_BIN -m Python.pat.core.cli --in "$in_file" --out "$out_file"
+        command $TI_PYTHON_BIN -m Python.pat.compiler.cli --in "$in_file" --out "$out_file"
         set -l rc $status
         popd >/dev/null
 

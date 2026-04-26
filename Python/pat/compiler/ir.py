@@ -91,33 +91,6 @@ class ASSIGN(REG):
     def __repr__(self):
         return f"REG.ASSIGN(reg={self.name}, val={self.value})"
 
-################################### DEF######################################
-
-
-@dataclass(frozen=True)
-class DefRole:
-    kind: str
-    name: str | None = None
-    needs_value: bool = False
-
-    def __repr__(self):
-        if self.name is not None:
-            suffix = "()" if self.needs_value else ""
-            return f"DEF.{self.kind}{suffix}({self.name})"
-        return f"DEF.{self.kind}"
-
-
-@dataclass(frozen=True)
-class DefCmd:
-    name: str
-    roles: list[DefRole]
-
-    def uses_named_roles(self) -> bool:
-        return any(role.kind == "PIN" for role in self.roles)
-
-    def __repr__(self):
-        return f"DEF.CMD(name={self.name}, roles={self.roles})"
-
 ################################### CMD######################################
 
 
@@ -135,11 +108,10 @@ class TICK(CMD):
 @dataclass(frozen=True)
 class UserCmdCall(CMD):
     name: str
-    direction: str | None
     args: list[str | int]
 
     def __repr__(self):
-        return f"CMD.USER(name={self.name}, dir={self.direction}, args={self.args})"
+        return f"CMD.USER(name={self.name}, args={self.args})"
 
 
 @dataclass(frozen=True)

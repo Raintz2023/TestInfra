@@ -2,26 +2,25 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from Python.pat.core.types import *
-from Python.pat.ir import *
+from Python.pat.compiler.definitions import CommandDef
+from Python.pat.compiler.ir import *
+from Python.pat.compiler.types import *
 
 
-def _def_map(def_list: list[DefCmd]) -> dict[str, DefCmd]:
-    return {def_cmd.name: def_cmd for def_cmd in def_list}
+def _command_map(command_defs: list[CommandDef]) -> dict[str, CommandDef]:
+    return {command_def.name: command_def for command_def in command_defs}
 
 
-def _validate_defs(def_list: list[DefCmd]) -> None:
+def _validate_commands(command_defs: list[CommandDef]) -> None:
     seen: set[str] = set()
-    for def_cmd in def_list:
-        if def_cmd.name in seen:
-            raise ValueError(f"Duplicate DEF {def_cmd.name}")
-        seen.add(def_cmd.name)
-        if any(role.kind != "PIN" for role in def_cmd.roles):
-            raise ValueError(f"DEF {def_cmd.name} uses unsupported legacy roles")
+    for command_def in command_defs:
+        if command_def.name in seen:
+            raise ValueError(f"Duplicate CMD {command_def.name}")
+        seen.add(command_def.name)
 
 
-def _expected_arg_count(def_cmd: DefCmd) -> int:
-    return sum(1 for role in def_cmd.roles if role.needs_value)
+def _expected_arg_count(command_def: CommandDef) -> int:
+    return len(command_def.params)
 
 
 def _collect_vars(ir_list: list) -> list[str]:
@@ -36,11 +35,11 @@ def _collect_vars(ir_list: list) -> list[str]:
     return names
 
 
-def _emit_cmd_call(ins: UserCmdCall, defs: dict[str, DefCmd]) -> str:
-    if ins.name not in defs:
+def _emit_cmd_call(ins: UserCmdCall, command_defs: dict[str, CommandDef]) -> str:
+    if ins.name not in command_defs:
         return f"# TODO unsupported CMD: {ins.name} has no DEF"
-    def_cmd = defs[ins.name]
-    expected = _expected_arg_count(def_cmd)
+    command_def = command_defs[ins.name]
+    expected = _expected_arg_count(command_def)
     if len(ins.args) != expected:
         return (
             f"# TODO unsupported CMD: {ins.name} expects {expected} args by DEF, "
@@ -124,25 +123,25 @@ def split_ir_list(ir_list: list):
 
 
 def emit_python(testflow_list: list[Row],
-                def_list: list[DefCmd],
+                command_defs: list[CommandDef],
                 ir_list: list,
                 out_path: str | Path,
                 func_name: str = "run",
-                schema_module: str | None = None,
+                schema_module_name: str | None = None,
                 timing_names: tuple[str, ...] = ()) -> None:
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    defs = _def_map(def_list)
-    _validate_defs(def_list)
+    defs = _command_map(command_defs)
+    _validate_commands(command_defs)
 
     lines: list[str] = []
     lines.append("# Auto-generated. DO NOT EDIT.")
     lines.append("")
     lines.append("import ate")
-    if schema_module is None:
-        raise RuntimeError("schema_module is required for generated patterns")
+    if schema_module_name is None:
+        raise RuntimeError("schema_module_name is required for generated patterns")
     lines.append(
-        f"from Python.pat.generated.schema.{schema_module} import build_commands, build_schema, build_timings"
+        f"from Python.pat.generated.schema.{schema_module_name} import build_commands, build_socket, build_timings"
     )
     lines.append("from Python.pat.runtime import idle, run_command")
     lines.append("")
@@ -152,15 +151,15 @@ def emit_python(testflow_list: list[Row],
     lines.append(f"def {func_name}(ate_obj: ate.ATE, TESTFLOW=1, {defaults}):")
     lines.append("    T = 1")
     lines.append("    F = 0")
-    lines.append("    schema = build_schema()")
+    lines.append("    socket = build_socket()")
     lines.append("    commands = build_commands()")
     lines.append("    timings = build_timings()")
     lines.append("    def cmd(name, *values):")
-    lines.append("        run_command(ate_obj, schema, commands, name, values)")
+    lines.append("        run_command(ate_obj, socket, commands, name, values)")
     if "TS0" in timing_names:
         lines.append("    if ate_obj.timing().name not in timings or ate_obj.timing().name == 'TS0':")
         lines.append("        ate_obj.set_timing(timings['TS0'])")
-    lines.append("    schema.configure(ate_obj)")
+    lines.append("    socket.configure(ate_obj)")
 
     spliting_label_list = []
     spliting_ir_list = split_ir_list(ir_list)
@@ -207,7 +206,7 @@ def trans_line(pc_init: int,
                lines: list,
                ir_list: list,
                label_dict: dict,
-               defs: dict[str, DefCmd],
+               defs: dict[str, CommandDef],
                timing_names: tuple[str, ...] = (),
                stop_pc: int | None = None,
                indent_extra: str = ""):

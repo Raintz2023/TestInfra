@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from lark import Transformer, v_args
 
-from Python.pat.ir import ASSIGN
+from Python.pat.compiler.ir import ASSIGN
 
 
 @v_args(inline=True)

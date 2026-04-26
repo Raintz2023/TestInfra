@@ -3,8 +3,9 @@ USE ../dram
 BEGIN
       <0> START -> TEST1 -> STOP
       <1> START -> TEST2 -> STOP
+      <2> START -> RESET -> STOP
 
-                  CTRL        |    REG          :                CMD                   ;// This is a comment
+            //      CTRL             REG                           CMD                   ;
                   ---------------------------------------------------------------------
             TEST1# FOR-2      |                 :                    ;                 ;
                               |                 :                    ;                 ;
@@ -85,7 +86,7 @@ BEGIN
                   ---------------------------------------------------------------------
 
 
-                  CTRL        |    REG          :                CMD                   ;// This is a comment
+            //       CTRL             REG                           CMD                   ;// This is a comment
                   ---------------------------------------------------------------------
             TEST2#NOP         |                 :                    ;                 ;
                               |                 :                    ;                 ;
@@ -152,4 +153,5 @@ BEGIN
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
                   ---------------------------------------------------------------------
+      INCLUDE ./Reset
 END

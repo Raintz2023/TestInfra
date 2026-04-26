@@ -1,0 +1,21 @@
+?start: socket_def
+
+socket_def: "SOCKET" socket_entry+ "END"
+
+socket_entry: DIRECTION NAME "{" "PIN" ":" pin_range "," "WAV" ":" WAVE_NAME "," DEFAULT_KIND ":" value "}"
+pin_range: INT              -> single_pin
+         | "[" INT ":" INT "]" -> range_pin
+
+?value: HEX           -> hex_lit
+      | INT           -> int_lit
+
+DIRECTION: "IN" | "OUT"
+DEFAULT_KIND: "DEF" | "EXP"
+WAVE_NAME: /[A-Za-z_][A-Za-z0-9_]*/
+NAME: /[A-Za-z_][A-Za-z0-9_]*/
+HEX: /0[xX][0-9a-fA-F]+/
+
+%import common.INT
+%import common.WS
+%ignore WS
+%ignore /\/\/[^\n]*/

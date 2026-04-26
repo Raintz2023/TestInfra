@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from lark import Transformer, v_args
 
-from Python.pat.ir import FOR, GOTO, NOP, RTN
+from Python.pat.compiler.ir import FOR, GOTO, NOP, RTN
 
 
 @v_args(inline=True)

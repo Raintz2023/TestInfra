@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from Python.pat.core.compiler import compile_pattern
+from Python.pat.compiler.pattern_compiler import compile_pattern
 
 
 def main(argv=None) -> int:

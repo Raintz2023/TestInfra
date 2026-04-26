@@ -4,8 +4,8 @@ from pathlib import Path
 
 from lark import Transformer, v_args
 
-from Python.pat.core.schema_types import SchemaPin
-from Python.pat.parser import parse_soc
+from Python.pat.compiler.definitions import PinDef
+from Python.pat.compiler.parser import parse_soc
 
 PIN_IN_COUNT = 31
 PIN_OUT_COUNT = 19
@@ -16,31 +16,39 @@ SUPPORTED_OUTPUT_WAVEFORMS = {"STB"}
 @v_args(inline=True)
 class SocToIR(Transformer):
     def NAME(self, token): return token.value
-    def IO_KIND(self, token): return token.value
+    def DIRECTION(self, token): return token.value
+    def DEFAULT_KIND(self, token): return token.value
+    def WAVE_NAME(self, token): return token.value
     def INT(self, token): return int(token)
     def hex_lit(self, token): return int(str(token), 16)
     def int_lit(self, token): return int(token)
 
-    def pin_range(self, io_kind, lsb, msb=None):
-        msb = lsb if msb is None else msb
-        return io_kind, int(lsb), int(msb)
+    def single_pin(self, pin):
+        return int(pin), int(pin)
 
-    def pin_stmt(self, name, pin_range, waveform, default_value):
-        io_kind, lsb, msb = pin_range
-        return SchemaPin(
+    def range_pin(self, lsb, msb):
+        return int(lsb), int(msb)
+
+    def socket_entry(self, direction, name, pin_range, waveform, default_kind, default_value):
+        lsb, msb = pin_range
+        if direction == "IN" and default_kind != "DEF":
+            raise RuntimeError(f"input pin {name} must use DEF")
+        if direction == "OUT" and default_kind != "EXP":
+            raise RuntimeError(f"output pin {name} must use EXP")
+        return PinDef(
             name=str(name),
-            input=(io_kind == "I"),
+            input=(direction == "IN"),
             lsb=lsb,
             width=msb - lsb + 1,
             waveform=str(waveform).upper(),
             default_value=int(default_value),
         )
 
-    def socket_def(self, *pins):
-        return list(pins)
+    def socket_def(self, *entries):
+        return list(entries)
 
 
-def _validate_soc_pins(pins: list[SchemaPin], soc_path: Path) -> None:
+def _validate_soc_pins(pins: list[PinDef], soc_path: Path) -> None:
     if not pins:
         raise RuntimeError(f"No PIN definitions found in {soc_path}")
 
@@ -78,7 +86,7 @@ def _validate_soc_pins(pins: list[SchemaPin], soc_path: Path) -> None:
         existing_ranges.append(current_range)
 
 
-def parse_soc_file(soc_path: Path) -> list[SchemaPin]:
+def parse_soc_file(soc_path: Path) -> list[PinDef]:
     try:
         tree = parse_soc(soc_path.read_text(encoding="utf-8", errors="replace"))
         pins = SocToIR().transform(tree)

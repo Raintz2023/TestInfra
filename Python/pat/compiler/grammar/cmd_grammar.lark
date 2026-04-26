@@ -1,15 +1,13 @@
 ?start: user_cmd
       | builtin_cmd
 
-user_cmd: USER_NAME DIRECTION cmd_args?   -> directed_user_cmd
+user_cmd: USER_NAME "<" cmd_args?         -> user_cmd_with_args
         | USER_NAME                       -> bare_user_cmd
 
 builtin_cmd: SYSTEM_NAME system_cmd_args? -> system_cmd_call
 
 SYSTEM_NAME: "CPA" | "CPL" | "CCR" | "ALERT" | /TS[A-Z0-9_]*/
 USER_NAME: /[A-Z][A-Z0-9_]*/
-
-DIRECTION: "<" | ">"
 
 ?cmd_args: expr ("," expr)*
 ?system_cmd_args: expr ("," expr)*

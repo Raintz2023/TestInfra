@@ -1,0 +1,21 @@
+?start: command_block
+
+command_block: "DEFINE" command_def+ "END"
+
+command_def: "CMD" CMD_NAME "(" param_list? ")" "{" command_action+ "}" ";"?
+
+param_list: PARAM_NAME ("," PARAM_NAME)*
+
+?command_action: drive_action
+               | sample_action
+
+drive_action: "DRIVE" PIN_NAME ("=" PARAM_NAME)? ";"?
+sample_action: "SAMPLE" PIN_NAME "=" PARAM_NAME ";"?
+
+CMD_NAME: /[A-Z][A-Z0-9_]*/
+PIN_NAME: /[A-Z][A-Z0-9_]*/
+PARAM_NAME: /[a-z_][a-z0-9_]*/
+
+%import common.WS
+%ignore WS
+%ignore /\/\/[^\n]*/

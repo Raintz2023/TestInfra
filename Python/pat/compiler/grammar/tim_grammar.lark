@@ -1,0 +1,18 @@
+?start: timing_block
+
+timing_block: "TIMING" timing_set+ "END"
+
+timing_set: NAME "{" timing_field ("," timing_field)* "}"
+
+timing_field: "PRD" ":" INT       -> period_spec
+            | "NRZ" ":" INT       -> nrz_spec
+            | "RZZ_RISE" ":" INT  -> rzz_rise_spec
+            | "RZZ_FALL" ":" INT  -> rzz_fall_spec
+            | "STB" ":" INT       -> stb_spec
+
+NAME: /[A-Z][A-Z0-9_]*/
+
+%import common.INT
+%import common.WS
+%ignore WS
+%ignore /\/\/[^\n]*/

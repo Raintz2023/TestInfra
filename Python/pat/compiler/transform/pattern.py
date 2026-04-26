@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from Python.pat.core.row_utils import cmd_texts_from_row, reg_texts_from_row
-from Python.pat.core.types import NoTestflowError, Row
-from Python.pat.ir import NO_CTRL, NO_REG, TICK
-from Python.pat.parser import parse_cmd, parse_ctrl, parse_reg
-from Python.pat.core.pat_reader import read_pat
-from Python.pat.core.schema_compiler import compile_schema
-from Python.pat.transform.cmd import CmdToIR
-from Python.pat.transform.ctrl import CtrlToIR
-from Python.pat.transform.reg import RegToIR
+from Python.pat.compiler.ir import NO_CTRL, NO_REG, TICK
+from Python.pat.compiler.parser import parse_cmd, parse_ctrl, parse_reg
+from Python.pat.compiler.pat_reader import read_pat
+from Python.pat.compiler.row_utils import cmd_texts_from_row, reg_texts_from_row
+from Python.pat.compiler.schema_compiler import compile_schema
+from Python.pat.compiler.transform.cmd import CmdToIR
+from Python.pat.compiler.transform.ctrl import CtrlToIR
+from Python.pat.compiler.transform.reg import RegToIR
+from Python.pat.compiler.types import NoTestflowError, Row
 
 
 def row_to_ir(row: Row):
@@ -47,9 +47,9 @@ def row_to_ir(row: Row):
     return ir_list
 
 
-def trans_pat(pat_path: str):
+def compile_pattern_ir(pat_path: str):
     testflow_list = []
-    def_list = []
+    command_defs = []
     ir_list = []
     raw_pat = read_pat(pat_path=pat_path)
 
@@ -59,10 +59,10 @@ def trans_pat(pat_path: str):
     if raw_pat.use_path is None:
         raise RuntimeError("Pattern must declare USE <schema_dir> before BEGIN")
 
-    compiled_schema = compile_schema(raw_pat.use_path)
-    schema_module = compiled_schema.module_name
-    def_list.extend(compiled_schema.def_cmds)
-    timing_names = compiled_schema.timing_names
+    compiled_defs = compile_schema(raw_pat.use_path)
+    schema_module_name = compiled_defs.module_name
+    command_defs.extend(compiled_defs.command_defs)
+    timing_names = compiled_defs.timing_names
 
     for def_line in raw_pat.def_lines:
         raise RuntimeError("Inline DEF is no longer supported. Use USE <schema_dir> instead.")
@@ -75,4 +75,4 @@ def trans_pat(pat_path: str):
     if not testflow_list:
         raise NoTestflowError(str(pat_path))
 
-    return testflow_list, def_list, ir_list, schema_module, timing_names
+    return testflow_list, command_defs, ir_list, schema_module_name, timing_names

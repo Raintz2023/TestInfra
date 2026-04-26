@@ -1,20 +1,18 @@
 SOCKET
-    PIN R     = I0     = [NRZ] 0
-    PIN W     = I1     = [NRZ] 0
-    PIN ADDR  = I2:9   = [NRZ] 0
-    PIN DQ_IN = I10:17 = [NRZ] 0
-    PIN MR_IN = I18:25 = [NRZ] 0
-    PIN MRW   = I26    = [NRZ] 0
-    PIN MRR   = I27    = [NRZ] 0
-    PIN DRIV  = I28    = [NRZ] 0
-    PIN CLK   = I29    = [RZZ] 0
-    PIN RST_N = I30    = [NRZ] 1
+    IN  R            { PIN: 0,       WAV: NRZ, DEF: 0 }
+    IN  W            { PIN: 1,       WAV: NRZ, DEF: 0 }
+    IN  ADDR         { PIN: [2:9],   WAV: NRZ, DEF: 0 }
+    IN  DQ_IN        { PIN: [10:17], WAV: NRZ, DEF: 0 }
+    IN  MR_IN        { PIN: [18:25], WAV: NRZ, DEF: 0 }
+    IN  MRW          { PIN: 26,      WAV: NRZ, DEF: 0 }
+    IN  MRR          { PIN: 27,      WAV: NRZ, DEF: 0 }
+    IN  DRIV         { PIN: 28,      WAV: NRZ, DEF: 0 }
+    IN  CLK          { PIN: 29,      WAV: RZZ, DEF: 0 }
+    IN  RST_N        { PIN: 30,      WAV: NRZ, DEF: 1 }
 
-    PIN DQ_IE        = O0     = [STB] 0
-    PIN DQ_OUT       = O1:8   = [STB] 0
-    PIN MR_OUT       = O9:16  = [STB] 0
-    PIN DQ_OE        = O17    = [STB] 0
-    PIN DQ_OUT_VALID = O18    = [STB] 0
+    OUT DQ_IE        { PIN: 0,       WAV: STB, EXP: 0 }
+    OUT DQ_OUT       { PIN: [1:8],   WAV: STB, EXP: 0 }
+    OUT MR_OUT       { PIN: [9:16],  WAV: STB, EXP: 0 }
+    OUT DQ_OE        { PIN: 17,      WAV: STB, EXP: 0 }
+    OUT DQ_OUT_VALID { PIN: 18,      WAV: STB, EXP: 0 }
 END
-
-PIN 
