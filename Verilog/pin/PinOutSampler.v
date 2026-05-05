@@ -1,58 +1,68 @@
 module PinOutSampler #(
     parameter WIDTH = 1,
     parameter DEPTH = 32,
-    parameter OFFSET_W = $clog2(DEPTH)
+    parameter DELAY_W = 32
 )(
     input  wire               CLK,
     input  wire               RST_N,
 
     input  wire               SAMP,
     input  wire [WIDTH-1:0]   SAMP_IN,
-    input  wire [OFFSET_W-1:0] SAMP_OFFSET,
+    input  wire [DELAY_W-1:0] SAMP_DELAY,
 
     output reg  [WIDTH-1:0]   SAMP_OUT,
     output reg                SAMP_ALERT
 );
 
-    // Keep one pending marker per future cycle so repeated sample requests
-    // can be observed one-by-one on SAMP_ALERT.
-    reg [DEPTH-1:0] pending_samp;
-    reg [DEPTH-1:0] next_pending_samp;
-    localparam [OFFSET_W-1:0] ONE = {{(OFFSET_W-1){1'b0}}, 1'b1};
-
-    always @(*) begin
-        next_pending_samp = {1'b0, pending_samp[DEPTH-1:1]};
-
-        if (SAMP && (SAMP_OFFSET != {OFFSET_W{1'b0}})) begin
-            next_pending_samp[SAMP_OFFSET - ONE] = 1'b1;
-        end
-    end
+    reg [31:0] phase_counter;
+    reg        ev_valid [0:DEPTH-1];
+    reg [31:0] ev_due [0:DEPTH-1];
+    integer i;
+    integer free_idx;
 
     always @(posedge CLK or negedge RST_N) begin
         if (!RST_N) begin
+            phase_counter <= 32'd0;
             SAMP_ALERT <= 1'b0;
             SAMP_OUT   <= {WIDTH{1'b0}};
-            pending_samp <= {DEPTH{1'b0}};
+            for (i = 0; i < DEPTH; i = i + 1) begin
+                ev_valid[i] <= 1'b0;
+                ev_due[i] <= 32'd0;
+            end
 
         end else begin
             SAMP_ALERT <= 1'b0;
             SAMP_OUT   <= {WIDTH{1'b0}};
 
-            if (pending_samp[0]) begin
-                SAMP_ALERT <= 1'b1;
-                // Sample the DUT output at the delayed observation point,
-                // rather than replaying the value captured when SAMP was requested.
-                SAMP_OUT   <= SAMP_IN;
-            end
-
-            if (SAMP) begin
-                if (SAMP_OFFSET == {OFFSET_W{1'b0}}) begin
+            for (i = 0; i < DEPTH; i = i + 1) begin
+                if (ev_valid[i] && (ev_due[i] == phase_counter)) begin
                     SAMP_ALERT <= 1'b1;
                     SAMP_OUT   <= SAMP_IN;
+                    ev_valid[i] <= 1'b0;
                 end
             end
 
-            pending_samp <= next_pending_samp;
+            if (SAMP) begin
+                if (SAMP_DELAY == 32'd0) begin
+                    SAMP_ALERT <= 1'b1;
+                    SAMP_OUT   <= SAMP_IN;
+                end else begin
+                    /* verilator lint_off BLKSEQ */
+                    free_idx = -1;
+                    for (i = 0; i < DEPTH; i = i + 1) begin
+                        if (!ev_valid[i] && free_idx == -1) begin
+                            free_idx = i;
+                        end
+                    end
+                    /* verilator lint_on BLKSEQ */
+                    if (free_idx >= 0) begin
+                        ev_valid[free_idx] <= 1'b1;
+                        ev_due[free_idx] <= phase_counter + SAMP_DELAY;
+                    end
+                end
+            end
+
+            phase_counter <= phase_counter + 32'd1;
         end
     end
 

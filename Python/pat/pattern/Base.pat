@@ -3,7 +3,7 @@ USE ../dram
 BEGIN
       <0> START -> TEST1 -> STOP
       <1> START -> TEST2 -> STOP
-      //<2> START -> RESET -> STOP
+      <2> START -> RESET -> STOP
 
             //      CTRL                   REG                                   CMD                        
                   ----------------------------------------------------------------------------------
@@ -31,15 +31,15 @@ BEGIN
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
-                  NOP         | DELAY = X                    :                    ; DRV < DATA      ;
-                              |                              :                    ; DRV < DATA      ;
-                              |                              :                    ; DRV < DATA      ;
-                              |                              :                    ; DRV < DATA      ;
+                  NOP         | DELAY = X                    :TS1                 ; DRV < DATA      ;
+                              |                              :TS1                 ; DRV < DATA      ;
+                              |                              :TS1                 ; DRV < DATA      ;
+                              |                              :TS1                 ; DRV < DATA      ;
                   FOR-5       |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
-                  NOP         |                              :                    ;                 ;
+                  NOP         | DELAY = 0                    :                    ;                 ;
                               |                              :ALERT               ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
@@ -59,10 +59,10 @@ BEGIN
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
-                  NOP         |  DELAY = Y                   :                    ; SMP < DATA      ;
-                              |                              :                    ; SMP < DATA      ;
-                              |                              :                    ; SMP < DATA      ;
-                              |                              :                    ; SMP < DATA      ;
+                  NOP         |                              :TS2                 ; SMP < DATA      ;
+                              |                              :TS2                 ; SMP < DATA      ;
+                              |                              :TS2                 ; SMP < DATA      ;
+                              |                              :TS2                 ; SMP < DATA      ;
                   NOP         |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
@@ -116,7 +116,7 @@ BEGIN
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
-                  NOP         | DELAY = X, DATA = 36         :                    ; SMP_MR < DATA   ;
+                  NOP         |  DATA = 36                   :TS1                 ; SMP_MR < DATA   ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
@@ -132,7 +132,7 @@ BEGIN
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
-                  NOP         | DELAY = Y, DATA = 34         :                    ; SMP_MR < DATA   ;
+                  NOP         |            DATA = 34         :TS2                 ; SMP_MR < DATA   ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;

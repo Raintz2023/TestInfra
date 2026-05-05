@@ -16,14 +16,23 @@ class TimToIR(Transformer):
     def nrz_spec(self, nrz_rise_phase):
         return ("nrz_rise_phase", int(nrz_rise_phase))
 
+    def nrz_base_spec(self, nrz_base_phase):
+        return ("nrz_base_phase", int(nrz_base_phase))
+
     def rzz_rise_spec(self, rzz_rise_phase):
         return ("rzz_rise_phase", int(rzz_rise_phase))
 
     def rzz_fall_spec(self, rzz_fall_phase):
         return ("rzz_fall_phase", int(rzz_fall_phase))
 
+    def rzz_base_spec(self, rzz_base_phase):
+        return ("rzz_base_phase", int(rzz_base_phase))
+
     def stb_spec(self, sample_phase):
         return ("sample_phase", int(sample_phase))
+
+    def stb_base_spec(self, sample_base_phase):
+        return ("sample_base_phase", int(sample_base_phase))
 
     def timing_set(self, name, *phase_specs):
         fields: dict[str, int] = {}
@@ -43,9 +52,12 @@ class TimToIR(Transformer):
             name=str(name),
             period_phases=fields["period_phases"],
             nrz_rise_phase=fields["nrz_rise_phase"],
+            nrz_base_phase=fields.get("nrz_base_phase", 0),
             rzz_rise_phase=fields["rzz_rise_phase"],
             rzz_fall_phase=fields["rzz_fall_phase"],
+            rzz_base_phase=fields.get("rzz_base_phase", 0),
             sample_phase=fields["sample_phase"],
+            sample_base_phase=fields.get("sample_base_phase", 0),
         )
 
     def timing_block(self, *timings):

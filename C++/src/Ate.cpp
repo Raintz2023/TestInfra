@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <iostream>
+#include <algorithm>
 #include <stdexcept>
 #include <type_traits>
 
@@ -137,6 +138,10 @@ void ATE::init_reset_sequence_() {
     nrz_drive_values_ = 0;
     nrz_pending_mask_ = 0;
     nrz_pending_values_ = 0;
+    nrz_pending_pin_delays_.fill(0);
+    nrz_pending_default_flags_.fill(false);
+    scheduled_drive_events_.clear();
+    scheduled_sample_events_.clear();
     cycle_ = 0;
     phase_in_period_ = 0;
 }
@@ -151,6 +156,10 @@ void ATE::reset() {
     nrz_drive_values_ = 0;
     nrz_pending_mask_ = 0;
     nrz_pending_values_ = 0;
+    nrz_pending_pin_delays_.fill(0);
+    nrz_pending_default_flags_.fill(false);
+    scheduled_drive_events_.clear();
+    scheduled_sample_events_.clear();
 
     advance_phase();
     advance_phase();
@@ -166,6 +175,10 @@ void ATE::reset() {
     nrz_drive_values_ = 0;
     nrz_pending_mask_ = 0;
     nrz_pending_values_ = 0;
+    nrz_pending_pin_delays_.fill(0);
+    nrz_pending_default_flags_.fill(false);
+    scheduled_drive_events_.clear();
+    scheduled_sample_events_.clear();
     cycle_ = 0;
     phase_in_period_ = 0;
 }
@@ -177,8 +190,8 @@ void ATE::tick() {
 
 // Public single-phase advance. This is the base timing primitive for all custom flows.
 void ATE::advance_phase() {
-    apply_nrz_drives_();
-    apply_rzz_drives_();
+    execute_scheduled_drive_events_();
+    execute_scheduled_sample_events_();
 
     socketp_->ATE_CLK = 0;
     socketp_->eval();
@@ -220,11 +233,13 @@ void ATE::set_timing(const TimingSet& timing) {
     phase_in_period_ %= timing_.period_phases;
 }
 
-void ATE::bind_nrz_drive(int pin, bool value) {
+void ATE::bind_nrz_drive(int pin, bool value, uint32_t pin_delay) {
     validate_pin_index_(pin, kPinInCount, "NRZ drive pin");
 
     const uint32_t mask = 1U << pin;
     nrz_pending_mask_ |= mask;
+    nrz_pending_pin_delays_[static_cast<std::size_t>(pin)] = pin_delay;
+    nrz_pending_default_flags_[static_cast<std::size_t>(pin)] = loading_vector_defaults_;
     if (value) {
         nrz_pending_values_ |= mask;
     } else {
@@ -288,19 +303,25 @@ void ATE::configure_input_pin(int lsb,
     });
 }
 
-void ATE::begin_vector_row() {
+void ATE::load_vector_row_defaults() {
     clear_drive();
     clear_rzz_drives();
 
+    loading_vector_defaults_ = true;
     for (const auto& config : input_pin_configs_) {
         bind_drive_field_wave(config.lsb,
                               config.width,
                               config.default_value,
                               config.waveform);
     }
+    loading_vector_defaults_ = false;
 }
 
-void ATE::activate_input_pin(int pin) {
+void ATE::begin_vector_row() {
+    load_vector_row_defaults();
+}
+
+void ATE::activate_input_pin(int pin, uint32_t pin_delay) {
     const auto& config = input_pin_config_(pin, 1);
     if (config.width != 1) {
         throw std::invalid_argument("activate_input_pin requires a single-bit pin config");
@@ -309,10 +330,10 @@ void ATE::activate_input_pin(int pin) {
         throw std::invalid_argument("activate_input_pin does not support RZZ pins");
     }
     const bool default_value = (config.default_value & 1U) != 0U;
-    bind_drive_pin_wave(pin, !default_value, config.waveform);
+    bind_drive_pin_wave(pin, !default_value, config.waveform, pin_delay);
 }
 
-void ATE::set_input_field(int lsb, int width, uint32_t value) {
+void ATE::set_input_field(int lsb, int width, uint32_t value, uint32_t pin_delay) {
     const auto& config = input_pin_config_(lsb, width);
     if (config.waveform.kind == DriveWaveformKind::RZZ) {
         throw std::invalid_argument("set_input_field does not support RZZ pins");
@@ -320,10 +341,12 @@ void ATE::set_input_field(int lsb, int width, uint32_t value) {
     if (width < 32 && (value & ~fieldMask(width)) != 0U) {
         throw std::invalid_argument("input field value does not fit field width");
     }
-    bind_drive_field_wave(lsb, width, value, config.waveform);
+    bind_drive_field_wave(lsb, width, value, config.waveform, pin_delay);
 }
 
 void ATE::commit_vector_row() {
+    schedule_nrz_pending_drives_();
+    schedule_rzz_bound_drives_();
     pulse_drive();
 }
 
@@ -352,13 +375,14 @@ void ATE::configure_output_pin(int lsb, int width, uint32_t default_value) {
     });
 }
 
-void ATE::expect_output_field(int lsb, int width, uint32_t expected) {
+void ATE::expect_output_field(int lsb, int width, uint32_t expected, uint32_t pin_delay) {
     const auto& config = output_pin_config_(lsb, width);
     if (width < 32 && (expected & ~fieldMask(width)) != 0U) {
         throw std::invalid_argument("output field expected value does not fit field width");
     }
     set_top_data(expected);
-    sample(CompareSpec::field(config.lsb, config.width, 0));
+    const auto spec = CompareSpec::field(config.lsb, config.width, pin_delay, expected);
+    schedule_sample_event_(phase_ + timing_.sample_base_phase + timing_.sample_phase, spec);
 }
 
 // Public convenience helper: discard the currently staged drive operation.
@@ -366,6 +390,8 @@ void ATE::clear_drive() {
     clear_driv_();
     nrz_pending_mask_ = 0;
     nrz_pending_values_ = 0;
+    nrz_pending_pin_delays_.fill(0);
+    nrz_pending_default_flags_.fill(false);
 }
 
 // Public convenience helper: discard the currently staged sample operation.
@@ -373,24 +399,15 @@ void ATE::clear_sample() {
     clear_samp_();
 }
 
-// Public drive primitive for one input pin.
-void ATE::stage_drive_pin(int pin, bool value, uint32_t delay) {
-    bind_drive_pin_wave(pin, value, DriveWaveform::nrz(), delay);
-}
-
-void ATE::stage_drive_field(int lsb, int width, uint32_t value, uint32_t delay) {
-    bind_drive_field_wave(lsb, width, value, DriveWaveform::nrz(), delay);
-}
-
 void ATE::bind_drive_pin_wave(int pin,
                               bool value,
                               DriveWaveform waveform,
-                              uint32_t delay) {
+                              uint32_t pin_delay) {
     validate_pin_index_(pin, kPinInCount, "drive pin");
 
     switch (waveform.kind) {
     case DriveWaveformKind::NRZ:
-        bind_nrz_drive(pin, value);
+        bind_nrz_drive(pin, value, pin_delay);
         return;
     case DriveWaveformKind::RZZ:
         bind_rzz_drive(pin, DriveWaveform::rzz(value));
@@ -402,7 +419,7 @@ void ATE::bind_drive_field_wave(int lsb,
                                 int width,
                                 uint32_t value,
                                 DriveWaveform waveform,
-                                uint32_t delay) {
+                                uint32_t pin_delay) {
     validate_field_(lsb, width, kPinInCount, "drive field");
 
     switch (waveform.kind) {
@@ -410,7 +427,7 @@ void ATE::bind_drive_field_wave(int lsb,
     case DriveWaveformKind::RZZ:
         for (int i = 0; i < width; ++i) {
             const bool default_bit = ((value >> i) & 1U) != 0U;
-            bind_drive_pin_wave(lsb + i, default_bit, waveform, delay);
+            bind_drive_pin_wave(lsb + i, default_bit, waveform, pin_delay);
         }
         return;
     }
@@ -419,16 +436,16 @@ void ATE::bind_drive_field_wave(int lsb,
 void ATE::stage_drive_pin_wave(int pin,
                                bool value,
                                DriveWaveform waveform,
-                               uint32_t delay) {
-    bind_drive_pin_wave(pin, value, waveform, delay);
+                               uint32_t pin_delay) {
+    bind_drive_pin_wave(pin, value, waveform, pin_delay);
 }
 
 void ATE::stage_drive_field_wave(int lsb,
                                  int width,
                                  uint32_t value,
                                  DriveWaveform waveform,
-                                 uint32_t delay) {
-    bind_drive_field_wave(lsb, width, value, waveform, delay);
+                                 uint32_t pin_delay) {
+    bind_drive_field_wave(lsb, width, value, waveform, pin_delay);
 }
 
 // Public execute step for the staged drive request.
@@ -451,19 +468,7 @@ void ATE::sample() {
 void ATE::sample(const CompareSpec& spec) {
     validate_compare_spec_(spec);
 
-    pending_compare_specs_.push_back(spec);
-    clear_samp_();
-    switch (spec.mode) {
-    case CompareSpec::Mode::AllPins:
-        enable_all_samples_(timing_.sample_phase + spec.delay);
-        break;
-    case CompareSpec::Mode::SinglePin:
-        set_samp_pin_(spec.lsb, timing_.sample_phase + spec.delay);
-        break;
-    case CompareSpec::Mode::Field:
-        set_samp_field_(spec.lsb, spec.width, timing_.sample_phase + spec.delay);
-        break;
-    }
+    schedule_sample_event_(phase_ + timing_.sample_base_phase + timing_.sample_phase, spec);
     pulse_samp_();
 }
 
@@ -621,6 +626,39 @@ void ATE::print_compare_results_and() const {
     std::cout << (all_compare_results_pass() ? "*" : ".") << std::flush;
 }
 
+void ATE::print_sample_records() const {
+    if (captured_samples_.empty()) {
+        std::cout << "[samples] empty" << std::endl;
+        return;
+    }
+
+    std::cout << "[samples] count=" << captured_samples_.size() << std::endl;
+    for (std::size_t index = 0; index < captured_samples_.size(); ++index) {
+        const auto& sample = captured_samples_[index];
+        const uint32_t mask = compare_mask_(sample.compare_spec);
+        uint32_t actual = sample.raw & mask;
+        uint32_t expected = sample.top_data_snapshot & mask;
+
+        if (sample.compare_spec.mode == CompareSpec::Mode::Field) {
+            actual >>= sample.compare_spec.lsb;
+            expected >>= sample.compare_spec.lsb;
+        } else if (sample.compare_spec.mode == CompareSpec::Mode::SinglePin) {
+            actual >>= sample.compare_spec.lsb;
+            expected >>= sample.compare_spec.lsb;
+        }
+
+        std::cout << "[sample " << index
+                  << "] cycle=" << sample.cycle
+                  << " actual=0x" << std::hex << actual
+                  << " expected=0x" << expected
+                  << " raw=0x" << sample.raw
+                  << " mask=0x" << mask
+                  << std::dec
+                  << " pass=" << (sample_matches_(sample) ? 1 : 0)
+                  << std::endl;
+    }
+}
+
 // Public decoder helper for customer wrappers.
 uint32_t ATE::extract_output_field(uint32_t raw, int lsb, int width) const {
     validate_field_(lsb, width, 32, "output field");
@@ -669,17 +707,18 @@ void ATE::print(const std::string& s) const {
 void ATE::clear_driv_() {
     socketp_->DRIV = 0;
     socketp_->DRIV_IN = 0;
-    clearWideBus(socketp_->DRIV_OFFSET);
+    clearWideBus(socketp_->DRIV_DELAY);
+    clearWideBus(socketp_->DRIV_DURATION);
 }
 
 // Internal low-level socket clear. External code should prefer clear_sample().
 void ATE::clear_samp_() {
     socketp_->SAMP = 0;
-    clearWideBus(socketp_->SAMP_OFFSET);
+    clearWideBus(socketp_->SAMP_DELAY);
 }
 
 // Internal staging helper used by the public drive APIs after validation.
-void ATE::set_driv_pin_(int pin, bool value, uint32_t delay) {
+void ATE::set_driv_pin_(int pin, bool value, uint32_t pin_delay, uint32_t hold_duration) {
     uint32_t driv = socketp_->DRIV;
     uint32_t driv_in = socketp_->DRIV_IN;
 
@@ -688,40 +727,43 @@ void ATE::set_driv_pin_(int pin, bool value, uint32_t delay) {
 
     socketp_->DRIV = driv;
     socketp_->DRIV_IN = driv_in;
-    setWideField(socketp_->DRIV_OFFSET,
-                 pin * kOffsetWidth,
-                 kOffsetWidth,
-                 clamp_offset_(delay));
+    setWideField(socketp_->DRIV_DELAY,
+                 pin * kDelayWidth,
+                 kDelayWidth,
+                 pin_delay);
+    setWideField(socketp_->DRIV_DURATION,
+                 pin * kDelayWidth,
+                 kDelayWidth,
+                 hold_duration);
 }
 
 // Internal staging helper used by the public drive APIs after validation.
-void ATE::set_driv_field_(int lsb, int width, uint32_t value, uint32_t delay) {
+void ATE::set_driv_field_(int lsb, int width, uint32_t value, uint32_t pin_delay, uint32_t hold_duration) {
     for (int i = 0; i < width; ++i) {
-        set_driv_pin_(lsb + i, ((value >> i) & 1U) != 0U, delay);
+        set_driv_pin_(lsb + i, ((value >> i) & 1U) != 0U, pin_delay, hold_duration);
     }
 }
 
 // Internal staging helper used by the public sample APIs after validation.
-void ATE::set_samp_pin_(int pin, uint32_t delay) {
-    const uint32_t clamped_delay = clamp_offset_(delay);
+void ATE::set_samp_pin_(int pin, uint32_t pin_delay) {
     socketp_->SAMP |= (1U << pin);
-    setWideField(socketp_->SAMP_OFFSET,
-                 pin * kOffsetWidth,
-                 kOffsetWidth,
-                 clamped_delay);
+    setWideField(socketp_->SAMP_DELAY,
+                 pin * kDelayWidth,
+                 kDelayWidth,
+                 pin_delay);
 }
 
 // Internal staging helper used by the public sample APIs after validation.
-void ATE::set_samp_field_(int lsb, int width, uint32_t delay) {
+void ATE::set_samp_field_(int lsb, int width, uint32_t pin_delay) {
     for (int i = 0; i < width; ++i) {
-        set_samp_pin_(lsb + i, delay);
+        set_samp_pin_(lsb + i, pin_delay);
     }
 }
 
 // Internal helper for stage_sample_all().
-void ATE::enable_all_samples_(uint32_t delay) {
+void ATE::enable_all_samples_(uint32_t pin_delay) {
     for (int pin = 0; pin < kPinOutCount; ++pin) {
-        set_samp_pin_(pin, delay);
+        set_samp_pin_(pin, pin_delay);
     }
 }
 
@@ -735,38 +777,169 @@ void ATE::pulse_samp_() {
     advance_period();
 }
 
-void ATE::apply_nrz_drives_() {
-    if (phase_in_period_ >= timing_.nrz_rise_phase && nrz_pending_mask_ != 0U) {
-        nrz_drive_values_ = (nrz_drive_values_ & ~nrz_pending_mask_) |
-                            (nrz_pending_values_ & nrz_pending_mask_);
-        nrz_drive_mask_ |= nrz_pending_mask_;
-        nrz_pending_mask_ = 0;
-        nrz_pending_values_ = 0;
-    }
-
-    for (int pin = 0; pin < kPinInCount; ++pin) {
-        const uint32_t mask = 1U << pin;
-        if ((nrz_drive_mask_ & mask) != 0U) {
-            set_driv_pin_(pin, (nrz_drive_values_ & mask) != 0U, 0);
+void ATE::schedule_drive_event_(uint64_t due_phase,
+                                int pin,
+                                bool value,
+                                uint32_t pin_delay,
+                                uint32_t hold_duration,
+                                bool update_nrz_stable,
+                                bool default_value_event) {
+    ScheduledDriveEvent event{
+        .due_phase = due_phase,
+        .pin = pin,
+        .value = value,
+        .pin_delay = pin_delay,
+        .hold_duration = hold_duration,
+        .update_nrz_stable = update_nrz_stable,
+        .default_value_event = default_value_event,
+    };
+    auto insert_at = scheduled_drive_events_.begin();
+    while (insert_at != scheduled_drive_events_.end()) {
+        if (insert_at->due_phase > event.due_phase) {
+            break;
         }
+        if (insert_at->due_phase == event.due_phase &&
+            insert_at->default_value_event &&
+            !event.default_value_event) {
+            ++insert_at;
+            continue;
+        }
+        if (insert_at->due_phase == event.due_phase &&
+            !insert_at->default_value_event &&
+            event.default_value_event) {
+            break;
+        }
+        ++insert_at;
     }
+    scheduled_drive_events_.insert(insert_at, event);
 }
 
-// Internal periodic RZZ waveform driver. Bound pins are driven to their default
-// value outside rzz_rise_phase/rzz_fall_phase and inverted inside it.
-void ATE::apply_rzz_drives_() {
-    const bool active =
-        phase_in_period_ >= timing_.rzz_rise_phase &&
-        phase_in_period_ < timing_.rzz_fall_phase;
+void ATE::schedule_nrz_pending_drives_() {
+    uint32_t updated_mask = 0;
+    if (nrz_pending_mask_ != 0U) {
+        updated_mask = nrz_pending_mask_;
+        const uint64_t due_phase =
+            phase_ +
+            timing_.nrz_base_phase +
+            (phase_in_period_ <= timing_.nrz_rise_phase
+                 ? static_cast<uint64_t>(timing_.nrz_rise_phase - phase_in_period_)
+                 : 0ULL);
 
+        for (int pin = 0; pin < kPinInCount; ++pin) {
+            const uint32_t mask = 1U << pin;
+            if ((updated_mask & mask) == 0U) {
+                continue;
+            }
+            const bool value = (nrz_pending_values_ & mask) != 0U;
+            const uint32_t pin_delay = nrz_pending_pin_delays_[static_cast<std::size_t>(pin)];
+            const bool default_value_event =
+                nrz_pending_default_flags_[static_cast<std::size_t>(pin)];
+            const bool already_stable =
+                pin_delay == 0U &&
+                !has_scheduled_nrz_stable_event_(pin) &&
+                (nrz_drive_mask_ & mask) != 0U &&
+                ((nrz_drive_values_ & mask) != 0U) == value;
+            if (already_stable) {
+                nrz_pending_pin_delays_[static_cast<std::size_t>(pin)] = 0;
+                continue;
+            }
+            schedule_drive_event_(due_phase,
+                                  pin,
+                                  value,
+                                  pin_delay,
+                                  pin_delay == 0U ? 0U : timing_.period_phases,
+                                  pin_delay == 0U,
+                                  default_value_event);
+            nrz_pending_pin_delays_[static_cast<std::size_t>(pin)] = 0;
+            nrz_pending_default_flags_[static_cast<std::size_t>(pin)] = false;
+        }
+
+        nrz_pending_mask_ = 0;
+        nrz_pending_values_ = 0;
+        nrz_pending_default_flags_.fill(false);
+    }
+
+}
+
+void ATE::schedule_rzz_bound_drives_() {
+    const uint64_t row_start_phase = phase_;
     for (int pin = 0; pin < kPinInCount; ++pin) {
         const uint32_t mask = 1U << pin;
         if ((rzz_drive_mask_ & mask) == 0U) {
             continue;
         }
         const bool default_value = (rzz_default_values_ & mask) != 0U;
-        const bool value = active ? !default_value : default_value;
-        set_driv_pin_(pin, value, 0);
+        schedule_drive_event_(row_start_phase + timing_.rzz_base_phase + timing_.rzz_rise_phase,
+                              pin,
+                              !default_value);
+        schedule_drive_event_(row_start_phase + timing_.rzz_base_phase + timing_.rzz_fall_phase,
+                              pin,
+                              default_value);
+    }
+}
+
+void ATE::execute_scheduled_drive_events_() {
+    while (!scheduled_drive_events_.empty() &&
+           scheduled_drive_events_.front().due_phase <= phase_) {
+        const auto event = scheduled_drive_events_.front();
+        scheduled_drive_events_.pop_front();
+
+        const uint32_t mask = 1U << event.pin;
+        set_driv_pin_(event.pin, event.value, event.pin_delay, event.hold_duration);
+        if (event.update_nrz_stable) {
+            nrz_drive_mask_ |= mask;
+            if (event.value) {
+                nrz_drive_values_ |= mask;
+            } else {
+                nrz_drive_values_ &= ~mask;
+            }
+        }
+    }
+}
+
+bool ATE::has_scheduled_nrz_stable_event_(int pin) const {
+    for (const auto& event : scheduled_drive_events_) {
+        if (event.pin == pin && event.update_nrz_stable) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void ATE::schedule_sample_event_(uint64_t due_phase, const CompareSpec& spec) {
+    validate_compare_spec_(spec);
+    ScheduledSampleEvent event{
+        .due_phase = due_phase,
+        .spec = spec,
+    };
+    const auto insert_at = std::upper_bound(
+        scheduled_sample_events_.begin(),
+        scheduled_sample_events_.end(),
+        due_phase,
+        [](uint64_t due, const ScheduledSampleEvent& queued) {
+            return due < queued.due_phase;
+        });
+    scheduled_sample_events_.insert(insert_at, event);
+}
+
+void ATE::execute_scheduled_sample_events_() {
+    while (!scheduled_sample_events_.empty() &&
+           scheduled_sample_events_.front().due_phase <= phase_) {
+        const auto event = scheduled_sample_events_.front();
+        scheduled_sample_events_.pop_front();
+
+        pending_compare_specs_.push_back(event.spec);
+        switch (event.spec.mode) {
+        case CompareSpec::Mode::AllPins:
+            enable_all_samples_(event.spec.pin_delay);
+            break;
+        case CompareSpec::Mode::SinglePin:
+            set_samp_pin_(event.spec.lsb, event.spec.pin_delay);
+            break;
+        case CompareSpec::Mode::Field:
+            set_samp_field_(event.spec.lsb, event.spec.width, event.spec.pin_delay);
+            break;
+        }
     }
 }
 
@@ -812,14 +985,14 @@ void ATE::capture_sample_if_ready_() {
 uint32_t ATE::aligned_compare_value_(const CompareSpec& spec) const {
     switch (spec.mode) {
     case CompareSpec::Mode::AllPins:
-        return top_data_ & kCompareMask;
+        return spec.expected & kCompareMask;
     case CompareSpec::Mode::SinglePin:
-        return ((top_data_ & 1U) << spec.lsb) & kCompareMask;
+        return ((spec.expected & 1U) << spec.lsb) & kCompareMask;
     case CompareSpec::Mode::Field:
-        return ((top_data_ & fieldMask(spec.width)) << spec.lsb) & kCompareMask;
+        return ((spec.expected & fieldMask(spec.width)) << spec.lsb) & kCompareMask;
     }
 
-    return top_data_ & kCompareMask;
+    return spec.expected & kCompareMask;
 }
 
 // Build the bit-mask that a compare request requires the sample to cover.
@@ -858,11 +1031,6 @@ void ATE::validate_compare_spec_(const CompareSpec& spec) const {
         validate_field_(spec.lsb, spec.width, kPinOutCount, "compare field");
         break;
     }
-}
-
-// Internal delay normalization so wrappers can pass values larger than the hardware limit safely.
-uint32_t ATE::clamp_offset_(uint32_t offset) const {
-    return offset > kMaxOffset ? kMaxOffset : offset;
 }
 
 // Internal argument validation for public pin APIs.
@@ -908,23 +1076,38 @@ PYBIND11_MODULE(ate, m) {
         .def_readwrite("mode", &CompareSpec::mode)
         .def_readwrite("lsb", &CompareSpec::lsb)
         .def_readwrite("width", &CompareSpec::width)
-        .def_readwrite("delay", &CompareSpec::delay)
-        .def_static("all_pins", &CompareSpec::all_pins, py::arg("delay") = 0)
-        .def_static("single_pin", &CompareSpec::single_pin, py::arg("pin"), py::arg("delay") = 0)
+        .def_readwrite("pin_delay", &CompareSpec::pin_delay)
+        .def_property("delay",
+                      [](const CompareSpec& spec) { return spec.pin_delay; },
+                      [](CompareSpec& spec, uint32_t value) { spec.pin_delay = value; })
+        .def_readwrite("expected", &CompareSpec::expected)
+        .def_static("all_pins",
+                    &CompareSpec::all_pins,
+                    py::arg("pin_delay") = 0,
+                    py::arg("expected") = 0)
+        .def_static("single_pin",
+                    &CompareSpec::single_pin,
+                    py::arg("pin"),
+                    py::arg("pin_delay") = 0,
+                    py::arg("expected") = 0)
         .def_static("field",
                     &CompareSpec::field,
                     py::arg("lsb"),
                     py::arg("width"),
-                    py::arg("delay") = 0);
+                    py::arg("pin_delay") = 0,
+                    py::arg("expected") = 0);
 
     py::class_<TimingSet>(m, "TimingSet")
         .def(py::init<>())
         .def_readwrite("name", &TimingSet::name)
         .def_readwrite("period_phases", &TimingSet::period_phases)
         .def_readwrite("nrz_rise_phase", &TimingSet::nrz_rise_phase)
+        .def_readwrite("nrz_base_phase", &TimingSet::nrz_base_phase)
         .def_readwrite("rzz_rise_phase", &TimingSet::rzz_rise_phase)
         .def_readwrite("rzz_fall_phase", &TimingSet::rzz_fall_phase)
-        .def_readwrite("sample_phase", &TimingSet::sample_phase);
+        .def_readwrite("rzz_base_phase", &TimingSet::rzz_base_phase)
+        .def_readwrite("sample_phase", &TimingSet::sample_phase)
+        .def_readwrite("sample_base_phase", &TimingSet::sample_base_phase);
 
     py::enum_<DriveWaveformKind>(m, "DriveWaveformKind")
         .value("NRZ", DriveWaveformKind::NRZ)
@@ -956,15 +1139,19 @@ PYBIND11_MODULE(ate, m) {
              py::arg("pin"),
              py::arg("value"),
              py::arg("waveform"),
-             py::arg("delay") = 0)
+             py::arg("pin_delay") = 0)
         .def("bind_drive_field_wave",
              &ATE::bind_drive_field_wave,
              py::arg("lsb"),
              py::arg("width"),
              py::arg("value"),
              py::arg("waveform"),
-             py::arg("delay") = 0)
-        .def("bind_nrz_drive", &ATE::bind_nrz_drive, py::arg("pin"), py::arg("value"))
+             py::arg("pin_delay") = 0)
+        .def("bind_nrz_drive",
+             &ATE::bind_nrz_drive,
+             py::arg("pin"),
+             py::arg("value"),
+             py::arg("pin_delay") = 0)
         .def("bind_rzz_drive",
              [](ATE& self, int pin) { self.bind_rzz_drive(pin); },
              py::arg("pin"))
@@ -981,13 +1168,15 @@ PYBIND11_MODULE(ate, m) {
              py::arg("width"),
              py::arg("waveform"),
              py::arg("default_value") = 0)
+        .def("load_vector_row_defaults", &ATE::load_vector_row_defaults)
         .def("begin_vector_row", &ATE::begin_vector_row)
-        .def("activate_input_pin", &ATE::activate_input_pin, py::arg("pin"))
+        .def("activate_input_pin", &ATE::activate_input_pin, py::arg("pin"), py::arg("pin_delay") = 0)
         .def("set_input_field",
              &ATE::set_input_field,
              py::arg("lsb"),
              py::arg("width"),
-             py::arg("value"))
+             py::arg("value"),
+             py::arg("pin_delay") = 0)
         .def("commit_vector_row", &ATE::commit_vector_row)
         .def("clear_output_pin_configs", &ATE::clear_output_pin_configs)
         .def("configure_output_pin",
@@ -999,35 +1188,25 @@ PYBIND11_MODULE(ate, m) {
              &ATE::expect_output_field,
              py::arg("lsb"),
              py::arg("width"),
-             py::arg("expected"))
+             py::arg("expected"),
+             py::arg("pin_delay") = 0)
         .def("top_data", &ATE::top_data)
         .def("set_top_data", &ATE::set_top_data, py::arg("data"))
         .def("clear_drive", &ATE::clear_drive)
         .def("clear_sample", &ATE::clear_sample)
-        .def("stage_drive_pin",
-             &ATE::stage_drive_pin,
-             py::arg("pin"),
-             py::arg("value"),
-             py::arg("delay") = 0)
-        .def("stage_drive_field",
-             &ATE::stage_drive_field,
-             py::arg("lsb"),
-             py::arg("width"),
-             py::arg("value"),
-             py::arg("delay") = 0)
         .def("stage_drive_pin_wave",
              &ATE::stage_drive_pin_wave,
              py::arg("pin"),
              py::arg("value"),
              py::arg("waveform"),
-             py::arg("delay") = 0)
+             py::arg("pin_delay") = 0)
         .def("stage_drive_field_wave",
              &ATE::stage_drive_field_wave,
              py::arg("lsb"),
              py::arg("width"),
              py::arg("value"),
              py::arg("waveform"),
-             py::arg("delay") = 0)
+             py::arg("pin_delay") = 0)
         .def("pulse_drive", &ATE::pulse_drive)
         .def("pulse_alert", &ATE::pulse_alert)
         .def("sample", py::overload_cast<>(&ATE::sample))
@@ -1041,6 +1220,7 @@ PYBIND11_MODULE(ate, m) {
         .def("clear_compare_results", &ATE::clear_compare_results)
         .def("print_compare_results", &ATE::print_compare_results)
         .def("print_compare_results_and", &ATE::print_compare_results_and)
+        .def("print_sample_records", &ATE::print_sample_records)
         .def("clock", &ATE::clock)
         .def("cycle", &ATE::cycle)
         .def("current_drive_alert_raw", &ATE::current_drive_alert_raw)

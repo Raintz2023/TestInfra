@@ -25,7 +25,7 @@ def _expected_arg_count(command_def: CommandDef) -> int:
 
 def _collect_vars(ir_list: list) -> list[str]:
     names = []
-    default_names = ["X", "Y", "ADDR", "VAL", "TEMP"]
+    default_names = ["X", "Y", "Z", "ADDR", "VAL", "TEMP", "DATA", "DELAY"]
     for name in default_names:
         if name not in names:
             names.append(name)
@@ -63,7 +63,7 @@ def _emit_no_arg_system_cmd(ins: SystemCmd,
     if ins.name in emitters:
         return emitters[ins.name]
     if ins.name in timing_names:
-        return f"ate_obj.set_timing(timings[{ins.name!r}])"
+        return f"set_row_timing({ins.name!r})"
     return None
 
 
@@ -143,22 +143,54 @@ def emit_python(testflow_list: list[Row],
     lines.append(
         f"from Python.pat.generated.schema.{schema_module_name} import build_commands, build_socket, build_timings"
     )
-    lines.append("from Python.pat.runtime import idle, run_command")
+    lines.append("from Python.pat.runtime import apply_timing_updates, idle, run_command")
     lines.append("")
 
     vars_ = _collect_vars(ir_list)
     defaults = ", ".join(f"{name}=0" for name in vars_)
-    lines.append(f"def {func_name}(ate_obj: ate.ATE, TESTFLOW=1, {defaults}):")
+    lines.append(f"def {func_name}(ate_obj: ate.ATE, TESTFLOW=1, {defaults}, timing_updates=None):")
     lines.append("    T = 1")
     lines.append("    F = 0")
     lines.append("    socket = build_socket()")
     lines.append("    commands = build_commands()")
     lines.append("    timings = build_timings()")
+    lines.append("    apply_timing_updates(timings, timing_updates)")
+    lines.append("    row_timing_name = 'TS0'")
+    lines.append("    def set_row_timing(name):")
+    lines.append("        nonlocal row_timing_name")
+    lines.append("        if name not in timings:")
+    lines.append("            raise RuntimeError(f'Unknown timing set {name}')")
+    lines.append("        row_timing_name = name")
+    lines.append("    def apply_row_timing():")
+    lines.append("        ate_obj.set_timing(timings[row_timing_name])")
+    lines.append("    def finish_vector_row():")
+    lines.append("        nonlocal row_timing_name")
+    lines.append("        row_timing_name = 'TS0'")
+    context_items = ", ".join(f"{name!r}: {name}" for name in vars_)
     lines.append("    def cmd(name, *values):")
-    lines.append("        run_command(ate_obj, socket, commands, name, values)")
-    if "TS0" in timing_names:
-        lines.append("    if ate_obj.timing().name not in timings or ate_obj.timing().name == 'TS0':")
-        lines.append("        ate_obj.set_timing(timings['TS0'])")
+    lines.append("        apply_row_timing()")
+    lines.append(f"        run_command(ate_obj, socket, commands, name, values, {{{context_items}}})")
+    lines.append("        finish_vector_row()")
+    lines.append("    def idle_rows(rows):")
+    lines.append("        for _ in range(rows):")
+    lines.append("            apply_row_timing()")
+    lines.append("            idle(ate_obj, 1)")
+    lines.append("            finish_vector_row()")
+    lines.append("    timing = ate_obj.timing()")
+    lines.append("    if timing.period_phases <= 0:")
+    lines.append("        raise RuntimeError('current timing period_phases must be positive')")
+    lines.append("    if timing.nrz_rise_phase >= timing.period_phases:")
+    lines.append("        raise RuntimeError('current timing nrz_rise_phase out of period range')")
+    lines.append("    if timing.rzz_rise_phase >= timing.period_phases:")
+    lines.append("        raise RuntimeError('current timing rzz_rise_phase out of period range')")
+    lines.append("    if timing.rzz_fall_phase >= timing.period_phases:")
+    lines.append("        raise RuntimeError('current timing rzz_fall_phase out of period range')")
+    lines.append("    if timing.sample_phase >= timing.period_phases:")
+    lines.append("        raise RuntimeError('current timing sample_phase out of period range')")
+    lines.append("    if timing.nrz_rise_phase >= timing.rzz_rise_phase:")
+    lines.append("        raise RuntimeError('current timing nrz_rise_phase must be before rzz_rise_phase')")
+    lines.append("    if timing.rzz_rise_phase >= timing.rzz_fall_phase:")
+    lines.append("        raise RuntimeError('current timing rzz_rise_phase must be before rzz_fall_phase')")
     lines.append("    socket.configure(ate_obj)")
 
     spliting_label_list = []
@@ -226,7 +258,7 @@ def trans_line(pc_init: int,
         nonlocal pending_idle_count
         if pending_idle_count == 0:
             return
-        lines.append(f"{indent_extra}{indent}idle(ate_obj, {pending_idle_count})")
+        lines.append(f"{indent_extra}{indent}idle_rows({pending_idle_count})")
         pending_idle_count = 0
 
     while True:

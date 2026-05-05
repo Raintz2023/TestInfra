@@ -1,10 +1,91 @@
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Iterable, Mapping
 
 import ate
 
 from Python.pat.runtime.model import Command, CommandSet, Socket
+
+
+_TIMING_UPDATE_FIELDS = {
+    "PRD": "period_phases",
+    "PERIOD": "period_phases",
+    "PERIOD_PHASES": "period_phases",
+    "NRZ": "nrz_rise_phase",
+    "NRZ_RISE": "nrz_rise_phase",
+    "NRZ_RISE_PHASE": "nrz_rise_phase",
+    "NRZ_BASE": "nrz_base_phase",
+    "NRZ_BASE_PHASE": "nrz_base_phase",
+    "RZZ_RISE": "rzz_rise_phase",
+    "RZZ_RISE_PHASE": "rzz_rise_phase",
+    "RZZ_FALL": "rzz_fall_phase",
+    "RZZ_FALL_PHASE": "rzz_fall_phase",
+    "RZZ_BASE": "rzz_base_phase",
+    "RZZ_BASE_PHASE": "rzz_base_phase",
+    "STB": "sample_phase",
+    "SAMPLE": "sample_phase",
+    "SAMPLE_PHASE": "sample_phase",
+    "STB_BASE": "sample_base_phase",
+    "SAMPLE_BASE": "sample_base_phase",
+    "SAMPLE_BASE_PHASE": "sample_base_phase",
+}
+
+
+def _validate_timing(timing) -> None:
+    if timing.period_phases <= 0:
+        raise RuntimeError(f"Timing {timing.name} period_phases must be positive")
+    for phase_name in ("nrz_rise_phase", "rzz_rise_phase", "rzz_fall_phase", "sample_phase"):
+        if getattr(timing, phase_name) >= timing.period_phases:
+            raise RuntimeError(f"Timing {timing.name} {phase_name} out of period range")
+    for base_name in ("nrz_base_phase", "rzz_base_phase", "sample_base_phase"):
+        if getattr(timing, base_name) < 0:
+            raise RuntimeError(f"Timing {timing.name} {base_name} must be non-negative")
+    if timing.nrz_rise_phase >= timing.rzz_rise_phase:
+        raise RuntimeError(f"Timing {timing.name} nrz_rise_phase must be before rzz_rise_phase")
+    if timing.rzz_rise_phase >= timing.rzz_fall_phase:
+        raise RuntimeError(f"Timing {timing.name} rzz_rise_phase must be before rzz_fall_phase")
+
+
+def apply_timing_updates(timings: dict, timing_updates: Mapping[str, Mapping[str, int]] | None) -> dict:
+    if not timing_updates:
+        for timing in timings.values():
+            _validate_timing(timing)
+        return timings
+
+    for timing_name, fields in timing_updates.items():
+        if timing_name not in timings:
+            raise RuntimeError(f"Cannot modify undefined timing set: {timing_name}")
+        timing = timings[timing_name]
+        for field_name, value in fields.items():
+            key = str(field_name).upper()
+            attr = _TIMING_UPDATE_FIELDS.get(key)
+            if attr is None:
+                if hasattr(timing, field_name):
+                    attr = field_name
+                else:
+                    raise RuntimeError(f"Unknown timing field {field_name} for {timing_name}")
+            setattr(timing, attr, int(value))
+        _validate_timing(timing)
+    return timings
+
+
+def _resolve_pin_delay_phases(
+    ate_obj: ate.ATE,
+    action,
+    value_list: tuple[int, ...],
+    context: Mapping[str, int] | None,
+) -> int:
+    if not action.pin_delay_enabled:
+        return 0
+
+    pin_delay_periods = 0
+    if context is None or "DELAY" not in context:
+        raise ValueError(f"delay register DELAY missing for pin: {action.pin_name}")
+    pin_delay_periods = context["DELAY"]
+
+    if pin_delay_periods < 0:
+        raise ValueError(f"delay periods must be non-negative for pin: {action.pin_name}")
+    return int(pin_delay_periods) * int(ate_obj.timing().period_phases)
 
 
 def run_command(
@@ -13,6 +94,7 @@ def run_command(
     commands: CommandSet,
     name: str,
     values: Iterable[int] = (),
+    context: Mapping[str, int] | None = None,
 ) -> None:
     value_list = tuple(values)
     command = commands.command(name)
@@ -20,10 +102,10 @@ def run_command(
         raise ValueError(f"command {name} expects {len(command.params)} args, got {len(value_list)}")
     action_kinds = {action.kind for action in command.actions}
     if action_kinds == {"DRIVE"}:
-        apply_command(ate_obj, socket, command, value_list)
+        apply_command(ate_obj, socket, command, value_list, context)
         return
     if action_kinds == {"SAMPLE"}:
-        expect_command(ate_obj, socket, command, value_list)
+        expect_command(ate_obj, socket, command, value_list, context)
         return
     raise ValueError(f"command {name} mixes unsupported action kinds: {sorted(action_kinds)}")
 
@@ -33,9 +115,10 @@ def apply_command(
     socket: Socket,
     command: Command,
     values: Iterable[int] = (),
+    context: Mapping[str, int] | None = None,
 ) -> None:
     value_list = tuple(values)
-    ate_obj.begin_vector_row()
+    ate_obj.load_vector_row_defaults()
 
     for action in command.actions:
         pin = socket.pin(action.pin_name)
@@ -43,18 +126,19 @@ def apply_command(
             raise ValueError(f"apply command action is not an input pin: {action.pin_name}")
         if action.kind != "DRIVE":
             raise ValueError(f"apply_command only supports DRIVE actions, got {action.kind}")
+        pin_delay_phases = _resolve_pin_delay_phases(ate_obj, action, value_list, context)
         if action.param_index is not None:
             if action.param_index >= len(value_list):
                 raise ValueError(f"command value missing for pin: {action.pin_name}")
-            ate_obj.set_input_field(pin.lsb, pin.width, value_list[action.param_index])
+            ate_obj.set_input_field(pin.lsb, pin.width, value_list[action.param_index], pin_delay_phases)
         else:
-            ate_obj.activate_input_pin(pin.lsb)
+            ate_obj.activate_input_pin(pin.lsb, pin_delay_phases)
 
     ate_obj.commit_vector_row()
 
 
 def idle_row(ate_obj: ate.ATE) -> None:
-    ate_obj.begin_vector_row()
+    ate_obj.load_vector_row_defaults()
     ate_obj.commit_vector_row()
 
 
@@ -68,9 +152,10 @@ def expect_command(
     socket: Socket,
     command: Command,
     values: Iterable[int] = (),
+    context: Mapping[str, int] | None = None,
 ) -> None:
     value_list = tuple(values)
-    ate_obj.begin_vector_row()
+    ate_obj.load_vector_row_defaults()
 
     for action in command.actions:
         pin = socket.pin(action.pin_name)
@@ -80,4 +165,7 @@ def expect_command(
             raise ValueError(f"expect_command only supports SAMPLE actions, got {action.kind}")
         if action.param_index is None or action.param_index >= len(value_list):
             raise ValueError(f"expected value missing for pin: {action.pin_name}")
-        ate_obj.expect_output_field(pin.lsb, pin.width, value_list[action.param_index])
+        pin_delay_phases = _resolve_pin_delay_phases(ate_obj, action, value_list, context)
+        ate_obj.expect_output_field(pin.lsb, pin.width, value_list[action.param_index], pin_delay_phases)
+
+    ate_obj.commit_vector_row()

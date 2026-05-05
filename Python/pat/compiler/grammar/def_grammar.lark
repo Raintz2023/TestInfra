@@ -9,13 +9,13 @@ param_list: PARAM_NAME ("," PARAM_NAME)*
 ?command_action: drive_action
                | sample_action
 
-drive_action: "DRIVE" PIN_NAME ("=" PARAM_NAME)? ";"?
-sample_action: "SAMPLE" PIN_NAME "=" PARAM_NAME ";"?
+drive_action: "DRIVE" PIN_NAME ("=" PARAM_NAME)? ";"? delay_suffix?
+sample_action: "SAMPLE" PIN_NAME "=" PARAM_NAME ";"? delay_suffix?
+delay_suffix: "<" "DELAY" ">"
 
 CMD_NAME: /[A-Z][A-Z0-9_]*/
 PIN_NAME: /[A-Z][A-Z0-9_]*/
 PARAM_NAME: /[a-z_][a-z0-9_]*/
-
 %import common.WS
 %ignore WS
 %ignore /\/\/[^\n]*/

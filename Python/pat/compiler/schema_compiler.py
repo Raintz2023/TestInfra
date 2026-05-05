@@ -126,12 +126,12 @@ def _validate_commands(pins: list[PinDef], command_defs: list[CommandDef], cmd_p
 
 
 def _command_action_expr(action: CommandActionDef, params: tuple[str, ...]) -> str:
-    if action.param_name is None:
-        return f"CommandAction({action.kind!r}, {action.pin_name!r})"
-    return (
-        f"CommandAction({action.kind!r}, {action.pin_name!r}, "
-        f"param_index={params.index(action.param_name)})"
-    )
+    parts = [repr(action.kind), repr(action.pin_name)]
+    if action.param_name is not None:
+        parts.append(f"param_index={params.index(action.param_name)}")
+    if action.pin_delay_enabled:
+        parts.append("pin_delay_enabled=True")
+    return f"CommandAction({', '.join(parts)})"
 
 
 def _waveform_expr(pin: PinDef) -> str:
@@ -184,9 +184,12 @@ def _emit_schema_module(schema_path: Path,
         lines.append(f"    timing.name = {timing.name!r}")
         lines.append(f"    timing.period_phases = {timing.period_phases}")
         lines.append(f"    timing.nrz_rise_phase = {timing.nrz_rise_phase}")
+        lines.append(f"    timing.nrz_base_phase = {timing.nrz_base_phase}")
         lines.append(f"    timing.rzz_rise_phase = {timing.rzz_rise_phase}")
         lines.append(f"    timing.rzz_fall_phase = {timing.rzz_fall_phase}")
+        lines.append(f"    timing.rzz_base_phase = {timing.rzz_base_phase}")
         lines.append(f"    timing.sample_phase = {timing.sample_phase}")
+        lines.append(f"    timing.sample_base_phase = {timing.sample_base_phase}")
         lines.append(f"    timings[{timing.name!r}] = timing")
     lines.append("    return timings")
     lines.append("")

@@ -7,6 +7,7 @@
 #include "verilated.h"
 #include "verilated_vcd_c.h"
 
+#include <array>
 #include <cstdint>
 #include <deque>
 #include <memory>
@@ -28,31 +29,35 @@ struct CompareSpec {
     Mode mode = Mode::AllPins;
     int lsb = 0;
     int width = 1;
-    uint32_t delay = 0;
+    uint32_t pin_delay = 0;
+    uint32_t expected = 0;
 
-    static CompareSpec all_pins(uint32_t delay = 0) {
+    static CompareSpec all_pins(uint32_t pin_delay = 0, uint32_t expected = 0) {
         CompareSpec spec;
         spec.mode = Mode::AllPins;
         spec.width = 1;
-        spec.delay = delay;
+        spec.pin_delay = pin_delay;
+        spec.expected = expected;
         return spec;
     }
 
-    static CompareSpec single_pin(int pin, uint32_t delay = 0) {
+    static CompareSpec single_pin(int pin, uint32_t pin_delay = 0, uint32_t expected = 0) {
         CompareSpec spec;
         spec.mode = Mode::SinglePin;
         spec.lsb = pin;
         spec.width = 1;
-        spec.delay = delay;
+        spec.pin_delay = pin_delay;
+        spec.expected = expected;
         return spec;
     }
 
-    static CompareSpec field(int lsb, int width, uint32_t delay = 0) {
+    static CompareSpec field(int lsb, int width, uint32_t pin_delay = 0, uint32_t expected = 0) {
         CompareSpec spec;
         spec.mode = Mode::Field;
         spec.lsb = lsb;
         spec.width = width;
-        spec.delay = delay;
+        spec.pin_delay = pin_delay;
+        spec.expected = expected;
         return spec;
     }
 };
@@ -88,7 +93,7 @@ public:
     // Socket geometry is generated from pinmap/config so the ATE engine does
     // not silently bake in one DUT's pin shape.
     static constexpr int kOffsetWidth = AteSocketConfig::kOffsetWidth;
-    static constexpr int kMaxOffset = (1 << kOffsetWidth) - 1;
+    static constexpr int kDelayWidth = 32;
     static constexpr int kPinInCount = AteSocketConfig::kPinInCount;
     static constexpr int kPinOutCount = AteSocketConfig::kPinOutCount;
 
@@ -116,13 +121,13 @@ public:
     void bind_drive_pin_wave(int pin,
                              bool value,
                              DriveWaveform waveform,
-                             uint32_t delay = 0);
+                             uint32_t pin_delay = 0);
     void bind_drive_field_wave(int lsb,
                                int width,
                                uint32_t value,
                                DriveWaveform waveform,
-                               uint32_t delay = 0);
-    void bind_nrz_drive(int pin, bool value);
+                               uint32_t pin_delay = 0);
+    void bind_nrz_drive(int pin, bool value, uint32_t pin_delay = 0);
     void bind_rzz_drive(int pin, DriveWaveform waveform = DriveWaveform::rzz());
     void clear_rzz_drive(int pin);
     void clear_rzz_drives();
@@ -133,35 +138,32 @@ public:
                              int width,
                              DriveWaveform waveform,
                              uint32_t default_value = 0);
+    void load_vector_row_defaults();
     void begin_vector_row();
-    void activate_input_pin(int pin);
-    void set_input_field(int lsb, int width, uint32_t value);
+    void activate_input_pin(int pin, uint32_t pin_delay = 0);
+    void set_input_field(int lsb, int width, uint32_t value, uint32_t pin_delay = 0);
     void commit_vector_row();
 
     // Common external APIs: vector-row output pin schema.
     void clear_output_pin_configs();
     void configure_output_pin(int lsb, int width, uint32_t default_value = 0);
-    void expect_output_field(int lsb, int width, uint32_t expected);
+    void expect_output_field(int lsb, int width, uint32_t expected, uint32_t pin_delay = 0);
 
     // Common external APIs: clear currently staged drive/sample commands
     // before building the next custom operation.
     void clear_drive();
     void clear_sample();
 
-    // Common external APIs: generic drive primitives.
-    // These are the main methods you will usually wrap into customer-specific
-    // commands such as write/read/strobe/command packets.
-    void stage_drive_pin(int pin, bool value, uint32_t delay = 0);
-    void stage_drive_field(int lsb, int width, uint32_t value, uint32_t delay = 0);
+    // Common external APIs: generic drive primitives for direct low-level tests.
     void stage_drive_pin_wave(int pin,
                               bool value,
                               DriveWaveform waveform,
-                              uint32_t delay = 0);
+                              uint32_t pin_delay = 0);
     void stage_drive_field_wave(int lsb,
                                 int width,
                                 uint32_t value,
                                 DriveWaveform waveform,
-                                uint32_t delay = 0);
+                                uint32_t pin_delay = 0);
     void pulse_drive();
     void pulse_alert();
 
@@ -177,6 +179,7 @@ public:
     void clear_compare_results();
     void print_compare_results() const;
     void print_compare_results_and() const;
+    void print_sample_records() const;
 
     uint64_t clock() const { return clock_; }
     uint64_t cycle() const { return cycle_; }
@@ -212,20 +215,46 @@ public:
     void print(const std::string& s) const;
 
 private:
+    struct ScheduledDriveEvent {
+        uint64_t due_phase = 0;
+        int pin = 0;
+        bool value = false;
+        uint32_t pin_delay = 0;
+        uint32_t hold_duration = 0;
+        bool update_nrz_stable = false;
+        bool default_value_event = false;
+    };
+
+    struct ScheduledSampleEvent {
+        uint64_t due_phase = 0;
+        CompareSpec spec = CompareSpec{};
+    };
+
     // Internal helpers: reset/bootstrap and low-level socket staging.
     void init_reset_sequence_();
     void clear_driv_();
     void clear_samp_();
-    void set_driv_pin_(int pin, bool value, uint32_t delay = 0);
-    void set_driv_field_(int lsb, int width, uint32_t value, uint32_t delay = 0);
-    void set_samp_pin_(int pin, uint32_t delay = 0);
-    void set_samp_field_(int lsb, int width, uint32_t delay = 0);
-    void enable_all_samples_(uint32_t delay = 0);
+    void set_driv_pin_(int pin, bool value, uint32_t pin_delay = 0, uint32_t hold_duration = 0);
+    void set_driv_field_(int lsb, int width, uint32_t value, uint32_t pin_delay = 0, uint32_t hold_duration = 0);
+    void set_samp_pin_(int pin, uint32_t pin_delay = 0);
+    void set_samp_field_(int lsb, int width, uint32_t pin_delay = 0);
+    void enable_all_samples_(uint32_t pin_delay = 0);
     void pulse_driv_();
     void pulse_samp_();
     void capture_sample_if_ready_();
-    void apply_nrz_drives_();
-    void apply_rzz_drives_();
+    void schedule_drive_event_(uint64_t due_phase,
+                               int pin,
+                               bool value,
+                               uint32_t pin_delay = 0,
+                               uint32_t hold_duration = 0,
+                               bool update_nrz_stable = false,
+                               bool default_value_event = false);
+    void schedule_nrz_pending_drives_();
+    void schedule_rzz_bound_drives_();
+    void execute_scheduled_drive_events_();
+    bool has_scheduled_nrz_stable_event_(int pin) const;
+    void schedule_sample_event_(uint64_t due_phase, const CompareSpec& spec);
+    void execute_scheduled_sample_events_();
     const InputPinConfig& input_pin_config_(int lsb, int width) const;
     const OutputPinConfig& output_pin_config_(int lsb, int width) const;
     uint32_t aligned_compare_value_(const CompareSpec& spec) const;
@@ -233,8 +262,7 @@ private:
     bool sample_matches_(const SampleRecord& sample) const;
     void validate_compare_spec_(const CompareSpec& spec) const;
 
-    // Internal helpers: bounds checking and delay normalization.
-    uint32_t clamp_offset_(uint32_t offset) const;
+    // Internal helpers: bounds checking.
     void validate_pin_index_(int pin, int pin_count, const char* label) const;
     void validate_field_(int lsb, int width, int pin_count, const char* label) const;
 
@@ -252,8 +280,13 @@ private:
     uint32_t nrz_drive_values_ = 0;
     uint32_t nrz_pending_mask_ = 0;
     uint32_t nrz_pending_values_ = 0;
+    std::array<uint32_t, kPinInCount> nrz_pending_pin_delays_{};
+    std::array<bool, kPinInCount> nrz_pending_default_flags_{};
+    std::deque<ScheduledDriveEvent> scheduled_drive_events_;
+    std::deque<ScheduledSampleEvent> scheduled_sample_events_;
     uint32_t rzz_drive_mask_ = 0;
     uint32_t rzz_default_values_ = 0;
+    bool loading_vector_defaults_ = false;
     std::vector<InputPinConfig> input_pin_configs_;
     std::vector<OutputPinConfig> output_pin_configs_;
     std::deque<CompareSpec> pending_compare_specs_;

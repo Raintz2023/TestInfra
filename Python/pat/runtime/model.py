@@ -21,6 +21,7 @@ class CommandAction:
     kind: str
     pin_name: str
     param_index: int | None = None
+    pin_delay_enabled: bool = False
 
 
 @dataclass(frozen=True)
