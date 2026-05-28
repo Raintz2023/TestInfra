@@ -2,16 +2,16 @@
 
 module PinOutAdapter(
     input  wire DQ_IE,
-    input  wire [7:0] DQ_OUT,
+    input  wire DOUT_TX,
     input  wire [7:0] MR_OUT,
     input  wire DQ_OE,
     input  wire DQ_OUT_VALID,
-    output wire [18:0] PIN_OUT
+    output wire [11:0] PIN_OUT
 );
     assign PIN_OUT[0]      = DQ_IE;
-    assign PIN_OUT[8:1]    = DQ_OUT;
-    assign PIN_OUT[16:9]   = MR_OUT;
-    assign PIN_OUT[17]     = DQ_OE;
-    assign PIN_OUT[18]     = DQ_OUT_VALID;
+    assign PIN_OUT[1]      = DOUT_TX;
+    assign PIN_OUT[9:2]    = MR_OUT;
+    assign PIN_OUT[10]     = DQ_OE;
+    assign PIN_OUT[11]     = DQ_OUT_VALID;
 
 endmodule

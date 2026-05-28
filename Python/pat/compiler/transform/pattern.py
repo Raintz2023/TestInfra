@@ -34,10 +34,11 @@ def row_to_ir(row: Row):
             except Exception as exc:
                 ir_list.append(f"UNSUPPORTED_REG({reg!r})  err={exc}")
 
-    if not row.cmd1.strip() and not row.cmd2.strip():
+    cmd_texts = cmd_texts_from_row(row)
+    if not cmd_texts:
         ir_list.append(TICK())
     else:
-        for cmd in cmd_texts_from_row(row):
+        for cmd in cmd_texts:
             try:
                 parsed = parse_cmd(cmd)
                 ir_list.append(CmdToIR().transform(parsed))
@@ -47,11 +48,11 @@ def row_to_ir(row: Row):
     return ir_list
 
 
-def compile_pattern_ir(pat_path: str):
+def compile_pattern_ir(pat_path: str, use_paths=None, include_paths=None):
     testflow_list = []
     command_defs = []
     ir_list = []
-    raw_pat = read_pat(pat_path=pat_path)
+    raw_pat = read_pat(pat_path=pat_path, use_paths=use_paths, include_paths=include_paths)
 
     if not raw_pat.testflows and not raw_pat.def_lines and not raw_pat.rows:
         return [], [], [], None, ()

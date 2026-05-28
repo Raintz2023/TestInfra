@@ -1,0 +1,25 @@
+{
+  "Pattern block": {
+    "prefix": "begin",
+    "body": [
+      "USE ${1:../dram}",
+      "",
+      "BEGIN",
+      "      <${2:0}> START -> ${3:TEST} -> STOP",
+      "",
+      "            ${3:TEST}# NOP       | ${4:ADDR = 0} : ${5:CMD < ADDR} ;",
+      "                  RTN       |          :           ;",
+      "END"
+    ],
+    "description": "Create a PAT pattern file skeleton."
+  },
+  "Command definition": {
+    "prefix": "cmd",
+    "body": [
+      "CMD ${1:NAME}(${2:param}) {",
+      "    DRIVE ${3:PIN} = ${2:param};",
+      "}"
+    ],
+    "description": "Create a DEFINE CMD block."
+  }
+}

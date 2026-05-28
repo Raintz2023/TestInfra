@@ -1,0 +1,370 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "PAT Pattern",
+  "scopeName": "source.pattern",
+  "fileTypes": [
+    "pat"
+  ],
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#top-level"
+    },
+    {
+      "include": "#pattern-flow"
+    },
+    {
+      "include": "#labels"
+    },
+    {
+      "include": "#definition-blocks"
+    },
+    {
+      "include": "#timing-blocks"
+    },
+    {
+      "include": "#socket-blocks"
+    },
+    {
+      "include": "#matrix"
+    },
+    {
+      "include": "#commands"
+    },
+    {
+      "include": "#assignments"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#punctuation"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.pattern",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.pattern",
+          "begin": "/\\*",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.begin.pattern"
+            }
+          },
+          "end": "\\*/",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.end.pattern"
+            }
+          }
+        }
+      ]
+    },
+    "top-level": {
+      "patterns": [
+        {
+          "name": "meta.directive.use.pattern",
+          "match": "^\\s*(USE|INCLUDE)\\b\\s+([^\\s/][^\\s]*|\\.?\\.?/[^\\s]+)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.pattern"
+            },
+            "2": {
+              "name": "string.unquoted.path.pattern"
+            }
+          }
+        },
+        {
+          "name": "keyword.control.pattern",
+          "match": "\\b(DEFINE|SOCKET|TIMING|BEGIN|END)\\b"
+        }
+      ]
+    },
+    "pattern-flow": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arithmetic.pattern",
+          "match": "->|<|>"
+        },
+        {
+          "name": "keyword.testflow.pattern",
+          "match": "\\b(START|STOP)\\b"
+        },
+        {
+          "name": "entity.name.label.pattern",
+          "match": "\\b[A-Z][A-Z0-9_]*\\b(?=\\s*->)"
+        }
+      ]
+    },
+    "labels": {
+      "patterns": [
+        {
+          "name": "meta.label.definition.pattern",
+          "match": "\\b([A-Z][A-Z0-9_]*)\\b\\s*(#)",
+          "captures": {
+            "1": {
+              "name": "entity.name.label.pattern"
+            },
+            "2": {
+              "name": "punctuation.definition.label.hash.pattern"
+            }
+          }
+        },
+        {
+          "name": "meta.goto.pattern",
+          "match": "\\b(GOTO-(?:\\d+|[A-Z][A-Z0-9_]*))\\b\\s+([A-Z][A-Z0-9_]*)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.pattern"
+            },
+            "2": {
+              "name": "entity.name.label.pattern"
+            }
+          }
+        }
+      ]
+    },
+    "definition-blocks": {
+      "patterns": [
+        {
+          "name": "meta.command.definition.pattern",
+          "begin": "\\b(CMD)\\s+([A-Z][A-Z0-9_]*)\\s*(\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.pattern"
+            },
+            "2": {
+              "name": "constant.language.pattern"
+            },
+            "3": {
+              "name": "punctuation.definition.parameters.begin.pattern"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.parameters.end.pattern"
+            }
+          },
+          "patterns": [
+            {
+              "name": "variable.parameter.pattern",
+              "match": "\\b[a-z_][a-z0-9_]*\\b"
+            },
+            {
+              "name": "punctuation.separator.comma.pattern",
+              "match": ","
+            }
+          ]
+        },
+        {
+          "name": "meta.pin.action.pattern",
+          "match": "\\b(DRIVE|SAMPLE)\\b\\s+([A-Z][A-Z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.pattern"
+            },
+            "2": {
+              "name": "variable.other.pin.pattern"
+            }
+          }
+        },
+        {
+          "name": "keyword.control.pattern",
+          "match": "\\b(DRIVE|SAMPLE)\\b"
+        },
+        {
+          "name": "entity.name.type.pattern",
+          "match": "\\b(DELAY)\\b"
+        }
+      ]
+    },
+    "socket-blocks": {
+      "patterns": [
+        {
+          "name": "meta.socket.entry.pattern",
+          "begin": "^\\s*(IN|OUT)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\{)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.pattern"
+            },
+            "2": {
+              "name": "variable.other.pin.pattern"
+            },
+            "3": {
+              "name": "punctuation.section.braces.pattern"
+            }
+          },
+          "end": "\\}",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.braces.pattern"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#constants"
+            },
+            {
+              "name": "support.type.property-name.pattern",
+              "match": "\\b(PIN|WAV|DEF|EXP)\\b(?=\\s*:)"
+            },
+            {
+              "name": "constant.numeric.pattern",
+              "match": "\\b(NRZ|RZZ|STB)\\b(?!\\s*:)"
+            },
+            {
+              "include": "#punctuation"
+            }
+          ]
+        },
+        {
+          "name": "keyword.control.pattern",
+          "match": "\\b(IN|OUT)\\b"
+        },
+        {
+          "name": "support.type.property-name.pattern",
+          "match": "\\b(PIN|WAV|DEF|EXP)\\b(?=\\s*:)"
+        }
+      ]
+    },
+    "timing-blocks": {
+      "patterns": [
+        {
+          "name": "support.type.property-name.pattern",
+          "match": "\\b(PRD|NRZ|NRZ_BASE|RZZ_RISE|RZZ_FALL|RZZ_BASE|STB|STB_BASE)\\b(?=\\s*:)"
+        },
+        {
+          "name": "constant.language.pattern",
+          "match": "\\bTS[A-Z0-9_]*\\b"
+        }
+      ]
+    },
+    "matrix": {
+      "patterns": [
+        {
+          "name": "punctuation.definition.separator.pattern",
+          "match": "^\\s*-{5,}\\s*$"
+        },
+        {
+          "name": "keyword.control.pattern",
+          "match": "\\b(CTRL|NOP|RTN|FOR-(?:\\d+|[A-Z][A-Z0-9_]*)|GOTO-(?:\\d+|[A-Z][A-Z0-9_]*))\\b"
+        },
+        {
+          "name": "entity.name.type.pattern",
+          "match": "\\b(REG|ADDR|DATA|DELAY|[A-Z][A-Z0-9_]*(?=\\s*=))\\b"
+        },
+        {
+          "name": "constant.language.pattern",
+          "match": "\\b(CMD|CPA|CPL|CCR|ALERT|TS[A-Z0-9_]*)\\b"
+        }
+      ]
+    },
+    "commands": {
+      "patterns": [
+        {
+          "name": "meta.command.call.head.pattern",
+          "match": "\\b([A-Z][A-Z0-9_]*)\\b(?=\\s*<)",
+          "captures": {
+            "1": {
+              "name": "constant.language.pattern"
+            }
+          }
+        },
+        {
+          "name": "constant.language.pattern",
+          "match": "\\b(MRWR|MRRD|WR|RD|DRV|SMP|SMP_MR|RST)\\b"
+        }
+      ]
+    },
+    "assignments": {
+      "patterns": [
+        {
+          "name": "meta.assignment.pattern",
+          "match": "\\b([A-Z][A-Z0-9_]*)\\b\\s*(=)",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.pattern"
+            },
+            "2": {
+              "name": "keyword.operator.assignment.pattern"
+            }
+          }
+        },
+        {
+          "name": "entity.name.type.pattern",
+          "match": "\\b[A-Z][A-Z0-9_]*\\b"
+        },
+        {
+          "name": "variable.parameter.pattern",
+          "match": "\\b[a-z_][a-z0-9_]*\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.pattern",
+          "match": "\\b0[xX][0-9A-Fa-f]+\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.pattern",
+          "match": "\\b\\d+\\b"
+        },
+        {
+          "name": "constant.language.pattern",
+          "match": "\\b[X-Z]\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arithmetic.pattern",
+          "match": "->|<|>|\\+|-|\\*|/"
+        },
+        {
+          "name": "keyword.operator.assignment.pattern",
+          "match": "="
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.separator.pipe.pattern",
+          "match": "\\|"
+        },
+        {
+          "name": "punctuation.separator.colon.pattern",
+          "match": ":"
+        },
+        {
+          "name": "punctuation.terminator.statement.pattern",
+          "match": ";"
+        },
+        {
+          "name": "punctuation.separator.comma.pattern",
+          "match": ","
+        },
+        {
+          "name": "punctuation.section.braces.pattern",
+          "match": "[{}\\[\\]()]"
+        }
+      ]
+    }
+  }
+}

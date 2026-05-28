@@ -1,4 +1,4 @@
-USE ../dram
+USE chip
 
 BEGIN
       <0> START -> TEST1 -> STOP
@@ -31,16 +31,16 @@ BEGIN
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
-                  NOP         | DELAY = X                    :TS1                 ; DRV < DATA      ;
-                              |                              :TS1                 ; DRV < DATA      ;
-                              |                              :TS1                 ; DRV < DATA      ;
-                              |                              :TS1                 ; DRV < DATA      ;
+                  NOP         | DELAY = Z                    : TS1                ; DRV < DATA      ;
+                              |                              : TS1                ; DRV < DATA      ;
+                              |                              : TS1                ; DRV < DATA      ;
+                              |                              : TS1                ; DRV < DATA      ;
                   FOR-5       |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                   NOP         | DELAY = 0                    :                    ;                 ;
-                              |                              :ALERT               ;                 ;
+                              |                              : ALERT              ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                   NOP         |                              :                    ;                 ;
@@ -59,12 +59,12 @@ BEGIN
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
-                  NOP         |                              :TS2                 ; SMP < DATA      ;
-                              |                              :TS2                 ; SMP < DATA      ;
-                              |                              :TS2                 ; SMP < DATA      ;
-                              |                              :TS2                 ; SMP < DATA      ;
+                  NOP         | DELAY = Z                    : TS2                ; SMP < DATA      ;
+                              |                              : TS2                ; SMP < DATA      ;
+                              |                              : TS2                ; SMP < DATA      ;
+                              |                              : TS2                ; SMP < DATA      ;
                   NOP         |                              :                    ;                 ;
-                              |                              :                    ;                 ;
+                              | DELAY = 0                    :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                   NOP         |                              :                    ;                 ;
@@ -116,7 +116,7 @@ BEGIN
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
-                  NOP         |  DATA = 36                   :TS1                 ; SMP_MR < DATA   ;
+                  NOP         |            DATA = 34         : TS1                ; SMP_MR < DATA   ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
@@ -132,7 +132,7 @@ BEGIN
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
-                  NOP         |            DATA = 34         :TS2                 ; SMP_MR < DATA   ;
+                  NOP         |            DATA = 34         : TS2                ; SMP_MR < DATA   ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
                               |                              :                    ;                 ;
@@ -154,5 +154,5 @@ BEGIN
                               |                              :                    ;                 ;
                   ----------------------------------------------------------------------------------
 
-      INCLUDE ./Reset
+      INCLUDE Reset
 END

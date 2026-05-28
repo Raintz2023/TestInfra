@@ -32,25 +32,67 @@ def _strip_comment(line: str) -> str:
     return line.split('//')[0].strip()
 
 
-def _resolve_include_path(base_path: Path, include_target: str) -> Path:
+def _normalize_search_paths(search_paths: list[str | Path] | tuple[str | Path, ...] | None) -> list[Path]:
+    return [Path(path).resolve() for path in (search_paths or ())]
+
+
+def _format_search_error(kind: str, target: str, searched: list[Path]) -> str:
+    searched_text = ", ".join(str(path) for path in searched)
+    return f"{kind} not found: {target} (searched: {searched_text})"
+
+
+def _include_candidate(include_target: str) -> Path:
     include_path = Path(include_target.strip())
     if include_path.suffix == "":
         include_path = include_path.with_suffix(".pat")
     elif include_path.suffix in {".soc", ".cmd"}:
         include_path = include_path.with_suffix(include_path.suffix + ".pat")
-    if not include_path.is_absolute():
-        include_path = base_path.parent / include_path
-    return include_path.resolve()
+    return include_path
 
 
-def _resolve_use_path(base_path: Path, use_target: str) -> Path:
+def _resolve_include_path(base_path: Path,
+                          include_target: str,
+                          include_paths: list[str | Path] | tuple[str | Path, ...] | None = None) -> Path:
+    include_path = _include_candidate(include_target)
+    if include_path.is_absolute():
+        resolved = include_path.resolve()
+        if resolved.is_file():
+            return resolved
+        raise FileNotFoundError(f"Pattern file not found: {resolved}")
+
+    roots = [base_path.parent, *_normalize_search_paths(include_paths)]
+    for root in roots:
+        candidate = (root / include_path).resolve()
+        if candidate.is_file():
+            return candidate
+
+    searched = [(root / include_path).resolve() for root in roots]
+    raise FileNotFoundError(_format_search_error("INCLUDE file", include_target, searched))
+
+
+def _resolve_use_path(base_path: Path,
+                      use_target: str,
+                      use_paths: list[str | Path] | tuple[str | Path, ...] | None = None) -> Path:
     use_path = Path(use_target.strip())
-    if not use_path.is_absolute():
-        use_path = base_path.parent / use_path
-    return use_path.resolve()
+    if use_path.is_absolute():
+        resolved = use_path.resolve()
+        if resolved.is_dir():
+            return resolved
+        raise FileNotFoundError(f"USE schema directory not found: {resolved}")
+
+    roots = [base_path.parent, *_normalize_search_paths(use_paths)]
+    for root in roots:
+        candidate = (root / use_path).resolve()
+        if candidate.is_dir():
+            return candidate
+
+    searched = [(root / use_path).resolve() for root in roots]
+    raise FileNotFoundError(_format_search_error("USE schema directory", use_target, searched))
 
 
-def _expand_include_lines(pat_path: str | Path, stack: tuple[Path, ...] = ()) -> list[SourceLine]:
+def _expand_include_lines(pat_path: str | Path,
+                          stack: tuple[Path, ...] = (),
+                          include_paths: list[str | Path] | tuple[str | Path, ...] | None = None) -> list[SourceLine]:
     path = Path(pat_path).resolve()
     if path in stack:
         cycle = " -> ".join(str(p) for p in stack + (path,))
@@ -67,13 +109,15 @@ def _expand_include_lines(pat_path: str | Path, stack: tuple[Path, ...] = ()) ->
             expanded_lines.append(SourceLine(path=path, lineno=lineno, text=line))
             continue
 
-        include_path = _resolve_include_path(path, match.group(1))
-        expanded_lines.extend(_expand_include_lines(include_path, stack + (path,)))
+        include_path = _resolve_include_path(path, match.group(1), include_paths)
+        expanded_lines.extend(_expand_include_lines(include_path, stack + (path,), include_paths))
 
     return expanded_lines
 
 
-def _load_compile_lines(pat_path: str | Path) -> tuple[list[SourceLine], Path | None]:
+def _load_compile_lines(pat_path: str | Path,
+                        use_paths: list[str | Path] | tuple[str | Path, ...] | None = None,
+                        include_paths: list[str | Path] | tuple[str | Path, ...] | None = None) -> tuple[list[SourceLine], Path | None]:
     path = Path(pat_path).resolve()
     if not path.is_file():
         raise FileNotFoundError(f"Pattern file not found: {path}")
@@ -93,7 +137,7 @@ def _load_compile_lines(pat_path: str | Path) -> tuple[list[SourceLine], Path | 
             if use_match is not None:
                 if use_path is not None:
                     raise RuntimeError(f"Duplicate USE detected: {path}:{lineno}")
-                use_path = _resolve_use_path(path, use_match.group(1))
+                use_path = _resolve_use_path(path, use_match.group(1), use_paths)
                 continue
             if raw != "BEGIN":
                 return [], use_path
@@ -117,8 +161,8 @@ def _load_compile_lines(pat_path: str | Path) -> tuple[list[SourceLine], Path | 
             compile_lines.append(SourceLine(path=path, lineno=lineno, text=line))
             continue
 
-        include_path = _resolve_include_path(path, match.group(1))
-        compile_lines.extend(_expand_include_lines(include_path, (path,)))
+        include_path = _resolve_include_path(path, match.group(1), include_paths)
+        compile_lines.extend(_expand_include_lines(include_path, (path,), include_paths))
 
     if state == "before_begin":
         return [], use_path
@@ -202,14 +246,16 @@ def parse_pat_row(line: str) -> Row | None:
         cmd_part = right.split(":")[0]
         reg = ""
 
-    cmd_cols = [c.strip() for c in cmd_part.split(";")]
-    cmd1 = cmd_cols[0] if len(cmd_cols) > 0 else ""
-    cmd2 = cmd_cols[1] if len(cmd_cols) > 1 else ""
+    cmds = [c.strip() for c in cmd_part.split(";") if c.strip()]
+    cmd1 = cmds[0] if len(cmds) > 0 else ""
+    cmd2 = cmds[1] if len(cmds) > 1 else ""
 
-    return Row({"ctrl": labeled_ctrl, "reg": reg, "cmd1": cmd1, "cmd2": cmd2})
+    return Row({"ctrl": labeled_ctrl, "reg": reg, "cmd1": cmd1, "cmd2": cmd2, "cmds": cmds})
 
-def read_pat(pat_path:str):
-    compile_lines, use_path = _load_compile_lines(pat_path)
+def read_pat(pat_path: str | Path,
+             use_paths: list[str | Path] | tuple[str | Path, ...] | None = None,
+             include_paths: list[str | Path] | tuple[str | Path, ...] | None = None):
+    compile_lines, use_path = _load_compile_lines(pat_path, use_paths, include_paths)
     raw_pat = RawPat(testflows=[], def_lines=[], rows=[], use_path=use_path)
     for source_line in compile_lines:
         line = source_line.text

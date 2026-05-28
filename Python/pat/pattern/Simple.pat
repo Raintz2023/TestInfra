@@ -1,4 +1,4 @@
-USE ../dram
+USE dram
 
 BEGIN
       <0> START -> TEST1 -> STOP
@@ -154,5 +154,5 @@ BEGIN
                               |                              :                    ;                 ;
                   ----------------------------------------------------------------------------------
 
-      INCLUDE ./Reset
+      INCLUDE Reset
 END

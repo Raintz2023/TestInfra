@@ -25,8 +25,9 @@ class PinMapConfig(TypedDict):
 
 PORT_RE = re.compile(
     r"\b(input|output)\s+"
-    r"(?:wire|reg\s+|wire\s+|reg|logic\s+|logic)?"
-    r"(?:\[(\d+):(\d+)\]\s+)?"
+    r"(?:(?:wire|reg|logic)\s+)?"
+    r"(?:signed\s+)?"
+    r"(?:\[\s*(\d+)\s*:\s*(\d+)\s*\]\s+)?"
     r"([A-Za-z_]\w*)",
     re.MULTILINE,
 )

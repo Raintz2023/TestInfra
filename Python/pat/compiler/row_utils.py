@@ -4,6 +4,9 @@ from Python.pat.compiler.types import Row
 
 
 def cmd_texts_from_row(row: Row) -> list[str]:
+    if hasattr(row, "cmds"):
+        return list(row.cmds)
+
     texts = []
     if row.cmd1.strip():
         texts.append(row.cmd1.strip())

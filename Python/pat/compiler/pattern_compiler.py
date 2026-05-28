@@ -8,8 +8,14 @@ from Python.pat.compiler.transform.pattern import compile_pattern_ir
 
 def compile_pattern(in_path: str | Path,
                     out_path: str | Path,
-                    func_name: str = "run") -> int:
-    testflow_list, command_defs, ir_list, schema_module_name, timing_names = compile_pattern_ir(str(in_path))
+                    func_name: str = "run",
+                    use_paths=None,
+                    include_paths=None) -> int:
+    testflow_list, command_defs, ir_list, schema_module_name, timing_names = compile_pattern_ir(
+        str(in_path),
+        use_paths=use_paths,
+        include_paths=include_paths,
+    )
 
     if not testflow_list and not command_defs and not ir_list:
         print(f"[SKIP] {in_path} has no BEGIN/END compile block")

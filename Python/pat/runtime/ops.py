@@ -100,14 +100,55 @@ def run_command(
     command = commands.command(name)
     if len(value_list) != len(command.params):
         raise ValueError(f"command {name} expects {len(command.params)} args, got {len(value_list)}")
-    action_kinds = {action.kind for action in command.actions}
-    if action_kinds == {"DRIVE"}:
-        apply_command(ate_obj, socket, command, value_list, context)
-        return
-    if action_kinds == {"SAMPLE"}:
-        expect_command(ate_obj, socket, command, value_list, context)
-        return
-    raise ValueError(f"command {name} mixes unsupported action kinds: {sorted(action_kinds)}")
+
+    ate_obj.load_vector_row_defaults()
+
+    for action in command.actions:
+        if action.kind == "DRIVE":
+            _apply_drive_action(ate_obj, socket, action, value_list, context)
+        elif action.kind == "SAMPLE":
+            _apply_sample_action(ate_obj, socket, action, value_list, context)
+        else:
+            raise ValueError(f"command {name} has unsupported action kind: {action.kind}")
+
+    ate_obj.commit_vector_row()
+
+
+def _apply_drive_action(
+    ate_obj: ate.ATE,
+    socket: Socket,
+    action,
+    value_list: tuple[int, ...],
+    context: Mapping[str, int] | None,
+) -> None:
+    pin = socket.pin(action.pin_name)
+    if not pin.input:
+        raise ValueError(f"drive action is not an input pin: {action.pin_name}")
+
+    pin_delay_phases = _resolve_pin_delay_phases(ate_obj, action, value_list, context)
+    if action.param_index is not None:
+        if action.param_index >= len(value_list):
+            raise ValueError(f"command value missing for pin: {action.pin_name}")
+        ate_obj.set_input_field(pin.lsb, pin.width, value_list[action.param_index], pin_delay_phases)
+    else:
+        ate_obj.activate_input_pin(pin.lsb, pin_delay_phases)
+
+
+def _apply_sample_action(
+    ate_obj: ate.ATE,
+    socket: Socket,
+    action,
+    value_list: tuple[int, ...],
+    context: Mapping[str, int] | None,
+) -> None:
+    pin = socket.pin(action.pin_name)
+    if pin.input:
+        raise ValueError(f"sample action is not an output pin: {action.pin_name}")
+    if action.param_index is None or action.param_index >= len(value_list):
+        raise ValueError(f"expected value missing for pin: {action.pin_name}")
+
+    pin_delay_phases = _resolve_pin_delay_phases(ate_obj, action, value_list, context)
+    ate_obj.expect_output_field(pin.lsb, pin.width, value_list[action.param_index], pin_delay_phases)
 
 
 def apply_command(
@@ -121,18 +162,9 @@ def apply_command(
     ate_obj.load_vector_row_defaults()
 
     for action in command.actions:
-        pin = socket.pin(action.pin_name)
-        if not pin.input:
-            raise ValueError(f"apply command action is not an input pin: {action.pin_name}")
         if action.kind != "DRIVE":
             raise ValueError(f"apply_command only supports DRIVE actions, got {action.kind}")
-        pin_delay_phases = _resolve_pin_delay_phases(ate_obj, action, value_list, context)
-        if action.param_index is not None:
-            if action.param_index >= len(value_list):
-                raise ValueError(f"command value missing for pin: {action.pin_name}")
-            ate_obj.set_input_field(pin.lsb, pin.width, value_list[action.param_index], pin_delay_phases)
-        else:
-            ate_obj.activate_input_pin(pin.lsb, pin_delay_phases)
+        _apply_drive_action(ate_obj, socket, action, value_list, context)
 
     ate_obj.commit_vector_row()
 
@@ -158,14 +190,8 @@ def expect_command(
     ate_obj.load_vector_row_defaults()
 
     for action in command.actions:
-        pin = socket.pin(action.pin_name)
-        if pin.input:
-            raise ValueError(f"expect command action is not an output pin: {action.pin_name}")
         if action.kind != "SAMPLE":
             raise ValueError(f"expect_command only supports SAMPLE actions, got {action.kind}")
-        if action.param_index is None or action.param_index >= len(value_list):
-            raise ValueError(f"expected value missing for pin: {action.pin_name}")
-        pin_delay_phases = _resolve_pin_delay_phases(ate_obj, action, value_list, context)
-        ate_obj.expect_output_field(pin.lsb, pin.width, value_list[action.param_index], pin_delay_phases)
+        _apply_sample_action(ate_obj, socket, action, value_list, context)
 
     ate_obj.commit_vector_row()

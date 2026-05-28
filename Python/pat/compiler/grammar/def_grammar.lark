@@ -1,6 +1,6 @@
 ?start: command_block
 
-command_block: "DEFINE" command_def+ "END"
+command_block: "DEFINE" command_def* "END"
 
 command_def: "CMD" CMD_NAME "(" param_list? ")" "{" command_action+ "}" ";"?
 

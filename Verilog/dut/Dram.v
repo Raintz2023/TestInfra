@@ -32,7 +32,7 @@ module Dram(
     reg [7:0] driv_data_latch;        // Hold DRIV-captured data while gate is open
     integer i;
 
-    always @(posedge CLK or negedge RST_N) begin
+    always @(posedge CLK) begin
         if (!RST_N) begin
             DQ_OUT <= 8'd0;
             DQ_OE  <= 1'b0;

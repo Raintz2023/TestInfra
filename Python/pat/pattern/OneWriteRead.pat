@@ -1,4 +1,4 @@
-USE ../dram
+USE dram
 
 BEGIN
       <1> START -> TRAINING -> STOP 
@@ -160,6 +160,6 @@ BEGIN
                               |                 :                    ;                 ;
                               |                 :                    ;                 ;
                   ---------------------------------------------------------------------
-      INCLUDE ./Reset
+      INCLUDE Reset
 
 END

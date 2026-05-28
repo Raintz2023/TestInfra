@@ -5,8 +5,12 @@ class Row:
     def __init__(self, row: dict) -> None:
         self.ctrl = row["ctrl"]
         self.reg = row["reg"]
-        self.cmd1 = row["cmd1"]
-        self.cmd2 = row["cmd2"]
+        cmds = row.get("cmds")
+        if cmds is None:
+            cmds = [row.get("cmd1", ""), row.get("cmd2", "")]
+        self.cmds = tuple(str(cmd).strip() for cmd in cmds if str(cmd).strip())
+        self.cmd1 = row.get("cmd1", self.cmds[0] if len(self.cmds) > 0 else "")
+        self.cmd2 = row.get("cmd2", self.cmds[1] if len(self.cmds) > 1 else "")
 
 
 class PatternError(Exception):

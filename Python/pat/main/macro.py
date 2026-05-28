@@ -2,6 +2,7 @@ from tool import apply_timing, first_range_value, load_pattern_runtime, make_ate
 from constant import PatContext
 
 def Train(ctx: PatContext,
+          test_name:str,
           pattern_name:str,
           testflow_num:int=1,
           top_data:int=0,
@@ -10,7 +11,6 @@ def Train(ctx: PatContext,
           timing_name:str='',
           trace_enable:bool=True,
           print_samples:bool=False):
-
 
     xr = parse_range(x_range)
     yr = parse_range(y_range)
@@ -30,16 +30,8 @@ def Train(ctx: PatContext,
                            trace_enable=trace_enable,
                            top_data=top_data)
             
-            timing_updates = {
-                "TS2": {
-                    "PRD": 20,
-                    "NRZ": 2,
-                    "RZZ_RISE": 4,
-                    "RZZ_FALL": 14,
-                    "STB": 16,
-                }
-            }
-            apply_timing(a, pattern_name, build_timings, "TS2", timing_updates=timing_updates)
+            timing_updates = None
+            apply_timing(a, pattern_name, build_timings, "TS0", timing_updates=timing_updates)
 
             compare_results = run(a, testflow_num, x, y, timing_updates=timing_updates)
 
@@ -48,7 +40,7 @@ def Train(ctx: PatContext,
                 x_pass_window.append(x)
             
             print_sample_records(a, print_samples)
-            a.print_compare_results_and()
+            a.print_compare_results_and()  
         
         print()
 
@@ -62,6 +54,7 @@ def Train(ctx: PatContext,
 
 
 def TrainBase(ctx: PatContext,
+          test_name:str,
           pattern_name:str,
           testflow_num:int=1,
           top_data:int=0,
@@ -70,7 +63,6 @@ def TrainBase(ctx: PatContext,
           timing_name:str='',
           trace_enable:bool=True,
           print_samples:bool=False):
-
 
     xr = parse_range(x_range)
     yr = parse_range(y_range)
@@ -90,29 +82,52 @@ def TrainBase(ctx: PatContext,
                            trace_enable=trace_enable,
                            top_data=top_data)
             
-            timing_updates = {
-                "TS1": {
-                    "PRD": 10,
-                    "NRZ": 1,
-                    "NRZ_BASE": 0,
-                    "RZZ_RISE": 2,
-                    "RZZ_FALL": 7,
-                    "STB": 8,
-                    "STB_BASE": 0
-                },
-                "TS2": {
-                    "PRD": 10,
-                    "NRZ": 1,
-                    "NRZ_BASE": 0,
-                    "RZZ_RISE": 2,
-                    "RZZ_FALL": 7,
-                    "STB": 8,
-                    "STB_BASE": y
+            if test_name == "TrainReadWrite":
+                timing_updates = {
+                    "TS1": {
+                        "PRD": 10,
+                        "NRZ": 1,
+                        "NRZ_BASE": x,
+                        "RZZ_RISE": 2,
+                        "RZZ_FALL": 7,
+                        "STB": 8,
+                        "STB_BASE": 0
+                    },
+                    "TS2": {
+                        "PRD": 10,
+                        "NRZ": 1,
+                        "NRZ_BASE": 0,
+                        "RZZ_RISE": 2,
+                        "RZZ_FALL": 7,
+                        "STB": 8,
+                        "STB_BASE": y
+                    }
                 }
-            }
+            elif test_name == "TrainMR":
+                timing_updates = {
+                    "TS1": {
+                        "PRD": 10,
+                        "NRZ": 1,
+                        "NRZ_BASE": 0,
+                        "RZZ_RISE": 2,
+                        "RZZ_FALL": 7,
+                        "STB": 8,
+                        "STB_BASE": x
+                    },
+                    "TS2": {
+                        "PRD": 10,
+                        "NRZ": 1,
+                        "NRZ_BASE": 0,
+                        "RZZ_RISE": 2,
+                        "RZZ_FALL": 7,
+                        "STB": 8,
+                        "STB_BASE": y
+                    }
+                }
+
             apply_timing(a, pattern_name, build_timings, "TS0", timing_updates=timing_updates)
 
-            compare_results = run(a, testflow_num, x, y, timing_updates=timing_updates)
+            compare_results = run(a, testflow_num, x, y, Z=0, timing_updates=timing_updates)
 
             if compare_results:
                 y_pass_window.append(y)
@@ -132,30 +147,57 @@ def TrainBase(ctx: PatContext,
     print("--- ATE Test Stop ---")
 
 def JustTestOnce(ctx: PatContext,
+                 test_name:str,
                  pattern_name:str,
                  testflow_num:int=1,
                  top_data:int=0,
                  x_range:str='',
                  y_range:str='',
                  timing_name:str='',
+                 trace_enable:bool=True,
                  print_samples:bool=False):
+    xr = parse_range(x_range)
+    yr = parse_range(y_range)
+
     _, run, build_timings = load_pattern_runtime(pattern_name)
-    x = first_range_value(x_range, ctx.xt)
-    y = first_range_value(y_range, ctx.yt)
+
+    write_training = ctx.xt
+    read_training = ctx.yt
 
     print("--- ATE Test Start ---")
 
     wave_name = make_wave_path("dram.vcd")
 
-    for i in range(20):
-        a = make_ate(wave_name=wave_name,
-                       trace_enable=True,
-                       top_data=i)
-        apply_timing(a, pattern_name, build_timings, timing_name)
-        
-        compare_results = run(a, testflow_num, x, y)
-        print_sample_records(a, print_samples)
-        a.print_compare_results_and()
+    for y in yr:
+        for x in xr:
+            timing_updates = {
+                "TS1": {
+                    "PRD": 10,
+                    "NRZ": 1,
+                    "NRZ_BASE": x,
+                    "RZZ_RISE": 2,
+                    "RZZ_FALL": 7,
+                    "STB": 8,
+                    "STB_BASE": 0
+                },
+                "TS2": {
+                    "PRD": 10,
+                    "NRZ": 1,
+                    "NRZ_BASE": 0,
+                    "RZZ_RISE": 2,
+                    "RZZ_FALL": 7,
+                    "STB": 8,
+                    "STB_BASE": y
+                }
+            }
+            a = make_ate(wave_name=wave_name,
+                        trace_enable=trace_enable,
+                        top_data=0)
+            apply_timing(a, pattern_name, build_timings, timing_name, timing_updates=timing_updates)
+
+            compare_results = run(a, testflow_num, X=write_training, Y=read_training)
+            print_sample_records(a, print_samples)
+            a.print_compare_results_and()
         
     print()
 

@@ -136,7 +136,7 @@ end
 
 function pbuild --description "Build Python sim with pattern using lark (TestInfra)"
     # ---- 必要环境变量检查（按实际使用列出来）----
-    for v in TI TI_PYTHON_BIN PYTHON_LIBS PYTHON_PAT_PATTERN PYTHON_PAT_GEN PYTHON_STUBS
+    for v in TI PYTHON TI_PYTHON_BIN PYTHON_LIBS PYTHON_PAT_PATTERN PYTHON_PAT_GEN PYTHON_STUBS
         if not set -q $v
             echo "pbuild: missing env var '$v' (e.g. set -Ux $v /path/to/...)" >&2
             return 2
@@ -150,13 +150,75 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
 
     command mkdir -p $PYTHON_PAT_GEN/run
 
+    set -l pattern_args
+    set -l use_paths
+    set -l include_paths
+    set -l i 1
+    while test $i -le (count $argv)
+        set -l arg $argv[$i]
+        switch $arg
+            case -U --use-path
+                set i (math $i + 1)
+                if test $i -gt (count $argv)
+                    echo "pbuild: $arg requires a path" >&2
+                    return 2
+                end
+                set -a use_paths $argv[$i]
+            case '--use-path=*'
+                set -a use_paths (string replace -- "--use-path=" "" $arg)
+            case '-U=*'
+                set -a use_paths (string replace -- "-U=" "" $arg)
+            case -I --include-path
+                set i (math $i + 1)
+                if test $i -gt (count $argv)
+                    echo "pbuild: $arg requires a path" >&2
+                    return 2
+                end
+                set -a include_paths $argv[$i]
+            case '--include-path=*'
+                set -a include_paths (string replace -- "--include-path=" "" $arg)
+            case '-I=*'
+                set -a include_paths (string replace -- "-I=" "" $arg)
+            case --help -h
+                echo "Usage: pbuild [-U USE_PATH] [-I INCLUDE_PATH] [pattern]"
+                echo "Example: pbuild -U \$PYTHON/pat -I \$PYTHON_PAT_PATTERN Base"
+                return 0
+            case '-*'
+                echo "pbuild: unknown option: $arg" >&2
+                return 2
+            case '*'
+                set -a pattern_args $arg
+        end
+        set i (math $i + 1)
+    end
+
+    if test (count $pattern_args) -gt 1
+        echo "pbuild: expected at most one pattern argument" >&2
+        return 2
+    end
+
+    if test (count $use_paths) -eq 0
+        set -a use_paths "$PYTHON/pat"
+    end
+    if test (count $include_paths) -eq 0
+        set -a include_paths "$PYTHON_PAT_PATTERN"
+    end
+
+    set -l pbuild_path_args
+    for path in $use_paths
+        set -a pbuild_path_args -U "$path"
+    end
+    for path in $include_paths
+        set -a pbuild_path_args -I "$path"
+    end
+
     function __pbuild_compile_one --no-scope-shadowing
         set -l in_file $argv[1]
         set -l stem $argv[2]
         set -l out_file "$PYTHON_PAT_GEN/run/$stem.py"
 
         pushd $TI >/dev/null
-        command $TI_PYTHON_BIN -m Python.pat.compiler.cli --in "$in_file" --out "$out_file"
+        command $TI_PYTHON_BIN -m Python.pat.compiler.cli $pbuild_path_args --in "$in_file" --out "$out_file"
         set -l rc $status
         popd >/dev/null
 
@@ -181,7 +243,7 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
     popd >/dev/null
 
     # ---- 无参数：遍历编译默认 pattern 目录 ----
-    if test (count $argv) -eq 0
+    if test (count $pattern_args) -eq 0
         set -l compiled 0
         for in_file in $PYTHON_PAT_PATTERN/*.pat
             if not test -f $in_file
@@ -204,7 +266,7 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
     end
 
     # ---- 有参数：允许 name / name.pat / /path/name.pat ----
-    set -l in_arg $argv[1]
+    set -l in_arg $pattern_args[1]
     set -l in_file ""
     set -l stem ""
 
@@ -232,7 +294,7 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
     return $rc
 end
 
-function pingen --description "Generate Verilog pin adapters and DUT wrapper from pinmap (TestInfra)"
+function pingen --description "Generate pinmap/schema, Verilog pin adapters, and DUT wrapper (TestInfra)"
     for v in VERILOG TI TI_PYTHON_BIN
         if not set -q $v
             echo "pingen: missing env var '$v'" >&2
@@ -245,14 +307,42 @@ function pingen --description "Generate Verilog pin adapters and DUT wrapper fro
         return 2
     end
 
-    if test (count $argv) -ne 1
-        echo "Usage: pingen <dut-name>" >&2
+    set -l force_args
+    set -l dut_args
+    for arg in $argv
+        switch $arg
+            case --force -f
+                set -a force_args --force
+            case --help -h
+                echo "Usage: pingen [--force] <dut-name>" >&2
+                echo "Example: pingen Dram" >&2
+                echo "Example: pingen --force Chip" >&2
+                return 0
+            case '-*'
+                echo "pingen: unknown option: $arg" >&2
+                return 2
+            case '*'
+                set -a dut_args $arg
+        end
+    end
+
+    if test (count $dut_args) -ne 1
+        echo "Usage: pingen [--force] <dut-name>" >&2
         echo "Example: pingen Dram" >&2
         return 2
     end
 
+    set -l dut_name $dut_args[1]
+
     pushd $TI >/dev/null
-    command $TI_PYTHON_BIN $VERILOG/script/gen_pin_adapter.py $argv[1]
+    command $TI_PYTHON_BIN $VERILOG/script/gen_dut_scaffold.py $force_args $dut_name
+    or begin
+        set -l rc $status
+        popd >/dev/null
+        return $rc
+    end
+
+    command $TI_PYTHON_BIN $VERILOG/script/gen_pin_adapter.py $dut_name
     set -l rc $status
     popd >/dev/null
     return $rc
@@ -366,4 +456,10 @@ function venv --description "Activate local Python virtual environment in curren
     end
 
     return $rc
+end
+
+
+# OSS CAD Suite
+if test -d /Users/lichenyu/Code/Learning/oss-cad-suite/bin
+    set -gx PATH /Users/lichenyu/Code/Learning/oss-cad-suite/bin $PATH
 end

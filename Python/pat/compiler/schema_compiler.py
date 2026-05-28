@@ -46,8 +46,6 @@ def _parse_cmd_file(cmd_path: Path) -> list[CommandDef]:
         def_cmds = DefToIR().transform(tree)
     except Exception as exc:
         raise RuntimeError(f"Unsupported DEF file: {cmd_path}") from exc
-    if not def_cmds:
-        raise RuntimeError(f"No CMD definitions found in {cmd_path}")
     return def_cmds
 
 
@@ -100,15 +98,10 @@ def _validate_commands(pins: list[PinDef], command_defs: list[CommandDef], cmd_p
         if len(seen_params) != len(command_def.params):
             raise RuntimeError(f"CMD {command_def.name} has duplicate params: {cmd_path}")
 
-        action_kind: str | None = None
         for action in command_def.actions:
             pin = pin_by_name.get(action.pin_name)
             if pin is None:
                 raise RuntimeError(f"CMD {command_def.name} references undefined SOC pin {action.pin_name}: {cmd_path}")
-            if action_kind is None:
-                action_kind = action.kind
-            elif action_kind != action.kind:
-                raise RuntimeError(f"CMD {command_def.name} mixes DRIVE and SAMPLE actions: {cmd_path}")
             if action.kind == "DRIVE" and not pin.input:
                 raise RuntimeError(f"CMD {command_def.name} DRIVE targets output pin {action.pin_name}: {cmd_path}")
             if action.kind == "SAMPLE" and pin.input:
