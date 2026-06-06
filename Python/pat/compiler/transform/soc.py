@@ -9,7 +9,7 @@ from Python.pat.compiler.parser import parse_soc
 
 PIN_IN_COUNT = 31
 PIN_OUT_COUNT = 19
-SUPPORTED_INPUT_WAVEFORMS = {"NRZ", "RZZ"}
+SUPPORTED_INPUT_WAVEFORMS = {"NRZ", "RZ", "RZZ"}
 SUPPORTED_OUTPUT_WAVEFORMS = {"STB"}
 
 

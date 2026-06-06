@@ -12,6 +12,12 @@ void validate_timing_set(const TimingSet& timing) {
     if (timing.sample_phase >= timing.period_phases) {
         throw std::out_of_range("timing sample_phase out of period range");
     }
+    if (timing.rz_rise_phase >= timing.period_phases) {
+        throw std::out_of_range("timing rz_rise_phase out of period range");
+    }
+    if (timing.rz_return_phase >= timing.period_phases) {
+        throw std::out_of_range("timing rz_return_phase out of period range");
+    }
     if (timing.rzz_rise_phase >= timing.period_phases) {
         throw std::out_of_range("timing rzz_rise_phase out of period range");
     }
@@ -20,6 +26,9 @@ void validate_timing_set(const TimingSet& timing) {
     }
     if (timing.nrz_rise_phase >= timing.rzz_rise_phase) {
         throw std::invalid_argument("timing nrz_rise_phase must be before rzz_rise_phase");
+    }
+    if (timing.rz_rise_phase >= timing.rz_return_phase) {
+        throw std::invalid_argument("timing rz_rise_phase must be before rz_return_phase");
     }
     if (timing.rzz_rise_phase >= timing.rzz_fall_phase) {
         throw std::invalid_argument("timing rzz_rise_phase must be before rzz_fall_phase");

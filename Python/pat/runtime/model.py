@@ -45,6 +45,10 @@ class Socket:
             else:
                 ate_obj.configure_output_pin(pin.lsb, pin.width, pin.default_value)
 
+    @property
+    def pins(self) -> tuple[Pin, ...]:
+        return self._pins
+
     def pin(self, name: str) -> Pin:
         try:
             return self._by_name[name]

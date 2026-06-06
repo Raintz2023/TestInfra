@@ -6,11 +6,16 @@ from Python.pat.compiler.types import *
 import re
 from dataclasses import dataclass
 
+from Python.pat.compiler.registers import RegisterSet, parse_register_block
+
 # 例：<1> START -> TEST1 -> TEST2 -> STOP   // comment
 _RE_TESTFLOW_LINE = re.compile(r'^\s*<\s*(\d+)\s*>\s*(.+?)\s*$')
+_RE_TESTFLOW_BLOCK_START = re.compile(r'^\s*<\s*(\d+)\s*>\s*START\s*$')
 _RE_VALID_NODE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')  # 你可按需放宽，比如允许 '-' 等
 _RE_INCLUDE_LINE = re.compile(r'^\s*INCLUDE\s+(.+?)\s*$')
 _RE_USE_LINE = re.compile(r'^\s*USE\s+(.+?)\s*$')
+_RE_REGISTER_START = re.compile(r'^\s*REGISTER\s*\{\s*(.*?)\s*$')
+_RE_CTRL_ONLY = re.compile(r'^(?:[A-Z][A-Z0-9_]*#\s*)?(?:NOP|RTN|FOR-[A-Z0-9_]+|GOTO-[A-Z0-9_]+\s+[A-Z][A-Z0-9_]*)$')
 
 
 @dataclass
@@ -19,6 +24,7 @@ class RawPat:
     def_lines: list[str]
     rows: list[Row]
     use_path: Path | None = None
+    registers: RegisterSet | None = None
 
 
 @dataclass
@@ -117,7 +123,7 @@ def _expand_include_lines(pat_path: str | Path,
 
 def _load_compile_lines(pat_path: str | Path,
                         use_paths: list[str | Path] | tuple[str | Path, ...] | None = None,
-                        include_paths: list[str | Path] | tuple[str | Path, ...] | None = None) -> tuple[list[SourceLine], Path | None]:
+                        include_paths: list[str | Path] | tuple[str | Path, ...] | None = None) -> tuple[list[SourceLine], Path | None, str | None]:
     path = Path(pat_path).resolve()
     if not path.is_file():
         raise FileNotFoundError(f"Pattern file not found: {path}")
@@ -125,6 +131,8 @@ def _load_compile_lines(pat_path: str | Path,
     compile_lines: list[SourceLine] = []
     state = "before_begin"
     use_path: Path | None = None
+    register_lines: list[str] = []
+    seen_register = False
 
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines(True)
     for lineno, line in enumerate(lines, start=1):
@@ -139,9 +147,39 @@ def _load_compile_lines(pat_path: str | Path,
                     raise RuntimeError(f"Duplicate USE detected: {path}:{lineno}")
                 use_path = _resolve_use_path(path, use_match.group(1), use_paths)
                 continue
+            register_match = _RE_REGISTER_START.match(raw)
+            if register_match is not None:
+                if seen_register:
+                    raise RuntimeError(f"Duplicate REGISTER detected: {path}:{lineno}")
+                seen_register = True
+                tail = register_match.group(1).strip()
+                if "}" in tail:
+                    before_close, after_close = tail.split("}", 1)
+                    if after_close.strip():
+                        raise RuntimeError(f"Unexpected text after REGISTER block: {path}:{lineno}")
+                    if before_close.strip():
+                        register_lines.append(before_close.strip())
+                    continue
+                if tail:
+                    register_lines.append(tail)
+                state = "in_register"
+                continue
             if raw != "BEGIN":
-                return [], use_path
+                return [], use_path, None
             state = "in_body"
+            continue
+
+        if state == "in_register":
+            if "}" in raw:
+                before_close, after_close = raw.split("}", 1)
+                if before_close.strip():
+                    register_lines.append(before_close.strip())
+                if after_close.strip():
+                    raise RuntimeError(f"Unexpected text after REGISTER block: {path}:{lineno}")
+                state = "before_begin"
+                continue
+            if raw:
+                register_lines.append(raw)
             continue
 
         if state == "after_end":
@@ -155,6 +193,8 @@ def _load_compile_lines(pat_path: str | Path,
 
         if _RE_USE_LINE.match(raw) is not None:
             raise RuntimeError(f"USE must appear before BEGIN: {path}:{lineno}")
+        if _RE_REGISTER_START.match(raw) is not None:
+            raise RuntimeError(f"REGISTER must appear before BEGIN: {path}:{lineno}")
 
         match = _RE_INCLUDE_LINE.match(raw)
         if match is None:
@@ -165,11 +205,13 @@ def _load_compile_lines(pat_path: str | Path,
         compile_lines.extend(_expand_include_lines(include_path, (path,), include_paths))
 
     if state == "before_begin":
-        return [], use_path
+        return [], use_path, "\n".join(register_lines) if seen_register else None
+    if state == "in_register":
+        raise RuntimeError(f"Unclosed REGISTER block: {path}")
     if state != "after_end":
         raise PatternEndError(str(path))
 
-    return compile_lines, use_path
+    return compile_lines, use_path, "\n".join(register_lines) if seen_register else None
 
 def _parse_testflow(raw: str) -> Row | None:
     """
@@ -252,16 +294,158 @@ def parse_pat_row(line: str) -> Row | None:
 
     return Row({"ctrl": labeled_ctrl, "reg": reg, "cmd1": cmd1, "cmd2": cmd2, "cmds": cmds})
 
+
+def _testflow_label(num: int | str) -> str:
+    return f"TESTFLOW_{num}"
+
+
+def _row_with_label(row: Row, label: str) -> Row:
+    if row.ctrl.startswith("NO_LABEL#"):
+        return Row({"ctrl": f"{label}#{row.ctrl.split('#', 1)[1]}", "reg": row.reg, "cmds": list(row.cmds)})
+    raise RuntimeError(f"First testflow row cannot already have a label: {row.ctrl}")
+
+
+def _blank_row() -> Row:
+    return Row({"ctrl": "NO_LABEL#", "reg": "", "cmds": []})
+
+
+def _rtn_rows(label: str | None = None) -> list[Row]:
+    ctrl = f"{label}#RTN" if label else "NO_LABEL#RTN"
+    return [
+        Row({"ctrl": ctrl, "reg": "", "cmds": []}),
+        _blank_row(),
+        _blank_row(),
+        _blank_row(),
+    ]
+
+
+def _has_testflow_fill_marker(raw: str) -> bool:
+    return raw.rstrip().endswith("*")
+
+
+def _strip_testflow_fill_marker(raw: str) -> str:
+    return raw.rstrip()[:-1].rstrip()
+
+
+def _parse_ctrl_text(ctrl_text: str) -> str | None:
+    ctrl = ctrl_text.strip()
+    if not ctrl:
+        return "NO_LABEL#"
+    label_num = count_label_in_ctrl(ctrl)
+    if label_num == 1:
+        label, ctrl = [c.strip() for c in ctrl.split("#", 1)]
+        if not label:
+            return None
+    elif label_num == 0:
+        label = "NO_LABEL"
+    else:
+        return None
+    if not ctrl:
+        return None
+    return f"{label}#{ctrl}"
+
+
+def _parse_testflow_pipe_row(raw: str) -> Row | None:
+    left, right = raw.split("|", 1)
+    if ":" in right:
+        return parse_pat_row(raw)
+
+    labeled_ctrl = _parse_ctrl_text(left)
+    if labeled_ctrl is None:
+        return None
+
+    return Row({"ctrl": labeled_ctrl, "reg": right.strip(), "cmds": []})
+
+
+def _parse_testflow_ctrl_row(raw: str) -> Row | None:
+    if _RE_CTRL_ONLY.fullmatch(raw.strip()) is None:
+        return None
+    labeled_ctrl = _parse_ctrl_text(raw)
+    if labeled_ctrl is None:
+        return None
+    return Row({"ctrl": labeled_ctrl, "reg": "", "cmds": []})
+
+
+def parse_testflow_body_row(line: str) -> tuple[list[Row], bool]:
+    raw = line.rstrip("\n").split('//')[0].strip()
+    if not raw or set(raw) == {"-"} or raw.startswith("CTRL"):
+        return [], False
+    fill = _has_testflow_fill_marker(raw)
+    if fill:
+        raw = _strip_testflow_fill_marker(raw)
+    if "|" in raw:
+        row = _parse_testflow_pipe_row(raw)
+    elif fill:
+        row = _parse_testflow_ctrl_row(raw)
+        if row is None:
+            raise RuntimeError(f"Testflow row with REG/CMD fields must use '|': {line.rstrip()}")
+    else:
+        raise RuntimeError(f"Testflow row must use '|' separator unless it ends with '*': {line.rstrip()}")
+    if row is None:
+        raise RuntimeError(f"Invalid testflow row: {line.rstrip()}")
+    rows = [row]
+    if fill:
+        rows.extend(_blank_row() for _ in range(3))
+    return rows, fill
+
 def read_pat(pat_path: str | Path,
              use_paths: list[str | Path] | tuple[str | Path, ...] | None = None,
              include_paths: list[str | Path] | tuple[str | Path, ...] | None = None):
-    compile_lines, use_path = _load_compile_lines(pat_path, use_paths, include_paths)
-    raw_pat = RawPat(testflows=[], def_lines=[], rows=[], use_path=use_path)
+    compile_lines, use_path, register_text = _load_compile_lines(pat_path, use_paths, include_paths)
+    raw_pat = RawPat(
+        testflows=[],
+        def_lines=[],
+        rows=[],
+        use_path=use_path,
+        registers=parse_register_block(register_text),
+    )
+    in_testflow = False
+    current_testflow_num: int | None = None
+    current_testflow_rows: list[Row] = []
+
+    def finish_testflow(source_line: SourceLine | None = None) -> None:
+        nonlocal in_testflow, current_testflow_num, current_testflow_rows
+        if current_testflow_num is None:
+            return
+        if not current_testflow_rows:
+            where = "" if source_line is None else f" at {source_line.path}:{source_line.lineno}"
+            raise EmptyTestflowError(f"{current_testflow_num}{where}")
+        label = _testflow_label(current_testflow_num)
+        current_testflow_rows[0] = _row_with_label(current_testflow_rows[0], label)
+        raw_pat.testflows.append(Row({
+            "ctrl": "TESTFLOW",
+            "reg": str(current_testflow_num),
+            "cmd1": "START",
+            "cmd2": label,
+        }))
+        raw_pat.rows.extend(current_testflow_rows)
+        raw_pat.rows.extend(_rtn_rows())
+        in_testflow = False
+        current_testflow_num = None
+        current_testflow_rows = []
+
     for source_line in compile_lines:
         line = source_line.text
         raw = _strip_comment(line)
         if not raw:
             continue
+        if in_testflow:
+            if raw == "STOP":
+                finish_testflow(source_line)
+                continue
+            rows, _ = parse_testflow_body_row(line)
+            current_testflow_rows.extend(rows)
+            continue
+        block_match = _RE_TESTFLOW_BLOCK_START.match(raw)
+        if block_match is not None:
+            in_testflow = True
+            current_testflow_num = int(block_match.group(1))
+            current_testflow_rows = []
+            continue
+        if raw == "STOP":
+            raise RuntimeError(f"STOP without testflow START: {source_line.path}:{source_line.lineno}")
+        if _has_testflow_fill_marker(raw):
+            raise RuntimeError(f"'*' 4Way fill marker is only allowed inside TESTFLOW blocks: {source_line.path}:{source_line.lineno}")
         if raw.startswith("DEF "):
             raw_pat.def_lines.append(raw)
             continue
@@ -273,5 +457,8 @@ def read_pat(pat_path: str | Path,
             raw_pat.testflows.append(row)
         else:
             raw_pat.rows.append(row)
+
+    if in_testflow:
+        raise RuntimeError(f"Unclosed testflow <{current_testflow_num}> START block")
 
     return raw_pat

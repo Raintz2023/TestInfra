@@ -1,6 +1,6 @@
 module Socket #(
-    parameter PIN_IN_NUM  = 26,
-    parameter PIN_OUT_NUM = 12,
+    parameter PIN_IN_NUM  = 24,
+    parameter PIN_OUT_NUM = 4,
     parameter DEPTH    = 32,
     parameter OFFSET_W = $clog2(DEPTH),
     parameter DELAY_W  = 32
@@ -9,6 +9,7 @@ module Socket #(
     input wire ATE_RST_N,
     /* verilator lint_off UNUSEDSIGNAL */
     input wire ALERT,
+    input wire [31:0] TOP_DATA,
     /* verilator lint_on UNUSEDSIGNAL */
 
     input  wire [PIN_IN_NUM-1:0] DRIV,

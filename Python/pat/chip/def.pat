@@ -1,12 +1,12 @@
 DEFINE
 
-    CMD MRWR(addr, mr_in) {
+    CMD MRW(addr, mr_in) {
         DRIVE MRW;           
         DRIVE ADDR = addr;   
         DRIVE MR_IN = mr_in; 
     }
 
-    CMD MRRD(addr) {
+    CMD MRR(addr) {
         DRIVE MRR;           
         DRIVE ADDR = addr;   
     }
@@ -17,14 +17,11 @@ DEFINE
     }
 
     CMD DRIV(val) {
-        DRIVE DQ_IN = val;   <DELAY>
+        DRIVE DQ_RX_BIT = val;   <DELAY>
     }
     CMD DRIV_START(val) {
-        DRIVE START_IN;      <DELAY>
-        DRIVE DQ_IN = val;   <DELAY>
-    }
-    CMD DRIV_END() {
-        DRIVE DRIV;          <DELAY>
+        DRIVE DQ_RX_START;       <DELAY>
+        DRIVE DQ_RX_BIT = val;   <DELAY>
     }
 
     CMD RD(addr) {
@@ -33,15 +30,11 @@ DEFINE
     }
 
     CMD SAMP(expect) {
-        SAMPLE DOUT_TX = expect; <DELAY>
+        SAMPLE DQ_TX_BIT = expect; <DELAY>
     }
+    
     CMD SAMP_START(expect) {
-        DRIVE START_OUT;         <DELAY>
-        SAMPLE DOUT_TX = expect; <DELAY>
-    }
-
-    CMD SMP_MR(expect) {
-        SAMPLE MR_OUT = expect; <DELAY>
+        SAMPLE DQ_TX_BIT = expect; <DELAY>
     }
 
     CMD RST() {

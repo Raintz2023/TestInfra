@@ -16,6 +16,13 @@ _TIMING_UPDATE_FIELDS = {
     "NRZ_RISE_PHASE": "nrz_rise_phase",
     "NRZ_BASE": "nrz_base_phase",
     "NRZ_BASE_PHASE": "nrz_base_phase",
+    "RZ": "rz_rise_phase",
+    "RZ_RISE": "rz_rise_phase",
+    "RZ_RISE_PHASE": "rz_rise_phase",
+    "RZ_RETURN": "rz_return_phase",
+    "RZ_RETURN_PHASE": "rz_return_phase",
+    "RZ_BASE": "rz_base_phase",
+    "RZ_BASE_PHASE": "rz_base_phase",
     "RZZ_RISE": "rzz_rise_phase",
     "RZZ_RISE_PHASE": "rzz_rise_phase",
     "RZZ_FALL": "rzz_fall_phase",
@@ -34,14 +41,13 @@ _TIMING_UPDATE_FIELDS = {
 def _validate_timing(timing) -> None:
     if timing.period_phases <= 0:
         raise RuntimeError(f"Timing {timing.name} period_phases must be positive")
-    for phase_name in ("nrz_rise_phase", "rzz_rise_phase", "rzz_fall_phase", "sample_phase"):
+    for phase_name in ("nrz_rise_phase", "rz_rise_phase", "rz_return_phase", "rzz_rise_phase", "rzz_fall_phase", "sample_phase"):
         if getattr(timing, phase_name) >= timing.period_phases:
             raise RuntimeError(f"Timing {timing.name} {phase_name} out of period range")
-    for base_name in ("nrz_base_phase", "rzz_base_phase", "sample_base_phase"):
-        if getattr(timing, base_name) < 0:
-            raise RuntimeError(f"Timing {timing.name} {base_name} must be non-negative")
     if timing.nrz_rise_phase >= timing.rzz_rise_phase:
         raise RuntimeError(f"Timing {timing.name} nrz_rise_phase must be before rzz_rise_phase")
+    if timing.rz_rise_phase >= timing.rz_return_phase:
+        raise RuntimeError(f"Timing {timing.name} rz_rise_phase must be before rz_return_phase")
     if timing.rzz_rise_phase >= timing.rzz_fall_phase:
         raise RuntimeError(f"Timing {timing.name} rzz_rise_phase must be before rzz_fall_phase")
 

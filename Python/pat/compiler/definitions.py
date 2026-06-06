@@ -19,6 +19,9 @@ class TimingDef:
     period_phases: int = 10
     nrz_rise_phase: int = 1
     nrz_base_phase: int = 0
+    rz_rise_phase: int = 1
+    rz_return_phase: int = 3
+    rz_base_phase: int = 0
     rzz_rise_phase: int = 2
     rzz_fall_phase: int = 7
     rzz_base_phase: int = 0

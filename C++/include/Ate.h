@@ -5,7 +5,10 @@
 #include "VSocket.h"
 #include "Waveform.h"
 #include "verilated.h"
+
+#ifdef ATE_ENABLE_TRACE
 #include "verilated_vcd_c.h"
+#endif
 
 #include <array>
 #include <cstdint>
@@ -106,6 +109,7 @@ public:
     // Common external APIs: basic simulation lifecycle.
     void tick();
     void advance_phase();
+    void advance_to_phase(uint64_t target_phase);
     void advance_period();
     void run_cycles(uint32_t cycles);
     void reset();
@@ -143,11 +147,31 @@ public:
     void activate_input_pin(int pin, uint32_t pin_delay = 0);
     void set_input_field(int lsb, int width, uint32_t value, uint32_t pin_delay = 0);
     void commit_vector_row();
+    void schedule_input_pin_at(uint64_t due_phase,
+                               int pin,
+                               bool value,
+                               uint32_t pin_delay = 0,
+                               uint32_t hold_duration = 0,
+                               bool update_nrz_stable = false,
+                               bool default_value_event = false);
+    void schedule_input_field_at(uint64_t due_phase,
+                                 int lsb,
+                                 int width,
+                                 uint32_t value,
+                                 uint32_t pin_delay = 0,
+                                 uint32_t hold_duration = 0,
+                                 bool update_nrz_stable = false,
+                                 bool default_value_event = false);
 
     // Common external APIs: vector-row output pin schema.
     void clear_output_pin_configs();
     void configure_output_pin(int lsb, int width, uint32_t default_value = 0);
     void expect_output_field(int lsb, int width, uint32_t expected, uint32_t pin_delay = 0);
+    void schedule_output_field_at(uint64_t due_phase,
+                                  int lsb,
+                                  int width,
+                                  uint32_t expected,
+                                  uint32_t pin_delay = 0);
 
     // Common external APIs: clear currently staged drive/sample commands
     // before building the next custom operation.
@@ -166,6 +190,7 @@ public:
                                 uint32_t pin_delay = 0);
     void pulse_drive();
     void pulse_alert();
+    void schedule_alert_at(uint64_t due_phase);
 
     // Common external APIs: sample first, then compare the saved sample history.
     void sample();
@@ -255,6 +280,12 @@ private:
     bool has_scheduled_nrz_stable_event_(int pin) const;
     void schedule_sample_event_(uint64_t due_phase, const CompareSpec& spec);
     void execute_scheduled_sample_events_();
+    void schedule_alert_event_(uint64_t due_phase);
+    void execute_scheduled_alert_events_();
+    uint64_t phase_with_offset_(uint64_t row_start_phase,
+                                uint32_t waveform_phase,
+                                int32_t base_phase,
+                                const char* label) const;
     const InputPinConfig& input_pin_config_(int lsb, int width) const;
     const OutputPinConfig& output_pin_config_(int lsb, int width) const;
     uint32_t aligned_compare_value_(const CompareSpec& spec) const;
@@ -268,7 +299,9 @@ private:
 
     std::unique_ptr<VerilatedContext> contextp_;
     std::unique_ptr<VSocket> socketp_;
+#ifdef ATE_ENABLE_TRACE
     std::unique_ptr<VerilatedVcdC> tfp_;
+#endif
 
     uint64_t clock_ = 0;
     uint64_t phase_ = 0;
@@ -284,6 +317,7 @@ private:
     std::array<bool, kPinInCount> nrz_pending_default_flags_{};
     std::deque<ScheduledDriveEvent> scheduled_drive_events_;
     std::deque<ScheduledSampleEvent> scheduled_sample_events_;
+    std::deque<uint64_t> scheduled_alert_events_;
     uint32_t rzz_drive_mask_ = 0;
     uint32_t rzz_default_values_ = 0;
     bool loading_vector_defaults_ = false;

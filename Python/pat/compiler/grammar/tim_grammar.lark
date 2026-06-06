@@ -7,6 +7,9 @@ timing_set: NAME "{" timing_field ("," timing_field)* "}"
 timing_field: "PRD" ":" INT       -> period_spec
             | "NRZ" ":" INT       -> nrz_spec
             | "NRZ_BASE" ":" INT  -> nrz_base_spec
+            | "RZ" ":" INT        -> rz_spec
+            | "RZ_RETURN" ":" INT -> rz_return_spec
+            | "RZ_BASE" ":" INT   -> rz_base_spec
             | "RZZ_RISE" ":" INT  -> rzz_rise_spec
             | "RZZ_FALL" ":" INT  -> rzz_fall_spec
             | "RZZ_BASE" ":" INT  -> rzz_base_spec

@@ -3,9 +3,11 @@ assign: NAME "=" expr
 
 ?expr: term
      | expr "+" term   -> add
+     | expr "-" term   -> sub
 
 ?term: HEX           -> hex_lit
      | INT           -> int_lit
+     | "/" NAME      -> invert_var
      | NAME          -> var
 
 NAME: /[A-Z][A-Z0-9_]*/

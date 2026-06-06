@@ -4,19 +4,18 @@
     { "port": "R", "lsb": 0, "msb": 0 },
     { "port": "W", "lsb": 1, "msb": 1 },
     { "port": "ADDR", "lsb": 2, "msb": 9 },
-    { "port": "DQ_IN", "lsb": 10, "msb": 17 },
-    { "port": "MR_IN", "lsb": 18, "msb": 25 },
-    { "port": "MRW", "lsb": 26, "msb": 26 },
-    { "port": "MRR", "lsb": 27, "msb": 27 },
-    { "port": "DRIV", "lsb": 28, "msb": 28 },
+    { "port": "DQ_RX_DATA", "lsb": 10, "msb": 17 },
+    { "port": "DQ_RX_VALID", "lsb": 18, "msb": 18 },
+    { "port": "MR_IN", "lsb": 19, "msb": 26 },
+    { "port": "MRW", "lsb": 27, "msb": 27 },
+    { "port": "MRR", "lsb": 28, "msb": 28 },
     { "port": "CLK", "lsb": 29, "msb": 29 },
     { "port": "RST_N", "lsb": 30, "msb": 30 }
   ],
   "pin_out": [
     { "port": "DQ_IE", "lsb": 0, "msb": 0 },
-    { "port": "DQ_OUT", "lsb": 1, "msb": 8 },
-    { "port": "MR_OUT", "lsb": 9, "msb": 16 },
-    { "port": "DQ_OE", "lsb": 17, "msb": 17 },
-    { "port": "DQ_OUT_VALID", "lsb": 18, "msb": 18 }
+    { "port": "DQ_TX_DATA", "lsb": 1, "msb": 8 },
+    { "port": "DQ_OE", "lsb": 9, "msb": 9 },
+    { "port": "DQ_OUT_VALID", "lsb": 10, "msb": 10 }
   ]
 }

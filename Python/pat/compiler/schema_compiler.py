@@ -66,6 +66,8 @@ def _parse_tim_file(tim_path: Path) -> list[TimingDef]:
             raise RuntimeError(f"Timing {timing.name} PRD must be positive: {tim_path}")
         for phase_name, phase_value in (
             ("NRZ", timing.nrz_rise_phase),
+            ("RZ", timing.rz_rise_phase),
+            ("RZ return", timing.rz_return_phase),
             ("RZZ rise", timing.rzz_rise_phase),
             ("RZZ fall", timing.rzz_fall_phase),
             ("STB", timing.sample_phase),
@@ -74,6 +76,8 @@ def _parse_tim_file(tim_path: Path) -> list[TimingDef]:
                 raise RuntimeError(f"Timing {timing.name} {phase_name} out of range: {tim_path}")
         if timing.nrz_rise_phase >= timing.rzz_rise_phase:
             raise RuntimeError(f"Timing {timing.name} NRZ must be before RZZ rise: {tim_path}")
+        if timing.rz_rise_phase >= timing.rz_return_phase:
+            raise RuntimeError(f"Timing {timing.name} RZ must be before RZ return: {tim_path}")
         if timing.rzz_rise_phase >= timing.rzz_fall_phase:
             raise RuntimeError(f"Timing {timing.name} RZZ rise must be before RZZ fall: {tim_path}")
 
@@ -91,9 +95,6 @@ def _validate_commands(pins: list[PinDef], command_defs: list[CommandDef], cmd_p
         if command_def.name in seen_cmds:
             raise RuntimeError(f"Duplicate CMD definition {command_def.name}: {cmd_path}")
         seen_cmds.add(command_def.name)
-        if not command_def.actions:
-            raise RuntimeError(f"CMD {command_def.name} has no actions: {cmd_path}")
-
         seen_params = set(command_def.params)
         if len(seen_params) != len(command_def.params):
             raise RuntimeError(f"CMD {command_def.name} has duplicate params: {cmd_path}")
@@ -129,6 +130,8 @@ def _command_action_expr(action: CommandActionDef, params: tuple[str, ...]) -> s
 
 def _waveform_expr(pin: PinDef) -> str:
     waveform = pin.waveform.upper()
+    if waveform == "RZ":
+        return "ate.DriveWaveform.rz()"
     if waveform == "RZZ":
         return "ate.DriveWaveform.rzz()"
     return "ate.DriveWaveform.nrz()"
@@ -178,6 +181,9 @@ def _emit_schema_module(schema_path: Path,
         lines.append(f"    timing.period_phases = {timing.period_phases}")
         lines.append(f"    timing.nrz_rise_phase = {timing.nrz_rise_phase}")
         lines.append(f"    timing.nrz_base_phase = {timing.nrz_base_phase}")
+        lines.append(f"    timing.rz_rise_phase = {timing.rz_rise_phase}")
+        lines.append(f"    timing.rz_return_phase = {timing.rz_return_phase}")
+        lines.append(f"    timing.rz_base_phase = {timing.rz_base_phase}")
         lines.append(f"    timing.rzz_rise_phase = {timing.rzz_rise_phase}")
         lines.append(f"    timing.rzz_fall_phase = {timing.rzz_fall_phase}")
         lines.append(f"    timing.rzz_base_phase = {timing.rzz_base_phase}")

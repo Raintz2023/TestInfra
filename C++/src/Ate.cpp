@@ -89,15 +89,25 @@ void setScalarBit(uint32_t& bus, int bit, bool value) {
 ATE::ATE(std::string wave_name, bool trace_enable, uint32_t top_data_init)
     : contextp_(std::make_unique<VerilatedContext>()),
       socketp_(nullptr),
-      top_data_(top_data_init) {
+      top_data_(0) {
+#ifdef ATE_ENABLE_TRACE
     contextp_->traceEverOn(trace_enable);
+#else
+    if (trace_enable) {
+        throw std::runtime_error("ATE was built without trace support; rebuild with cbuild or pass trace_enable=False");
+    }
+    contextp_->traceEverOn(false);
+#endif
     socketp_ = std::make_unique<VSocket>(contextp_.get(), "TOP");
+    set_top_data(top_data_init);
 
+#ifdef ATE_ENABLE_TRACE
     if (trace_enable && !wave_name.empty()) {
         tfp_ = std::make_unique<VerilatedVcdC>();
         socketp_->trace(tfp_.get(), 99);
         tfp_->open(wave_name.c_str());
     }
+#endif
 
     socketp_->ATE_CLK = 0;
     socketp_->ATE_RST_N = 0;
@@ -109,9 +119,11 @@ ATE::ATE(std::string wave_name, bool trace_enable, uint32_t top_data_init)
 }
 
 ATE::~ATE() {
+#ifdef ATE_ENABLE_TRACE
     if (tfp_) {
         tfp_->close();
     }
+#endif
     if (socketp_) {
         socketp_->final();
     }
@@ -142,6 +154,7 @@ void ATE::init_reset_sequence_() {
     nrz_pending_default_flags_.fill(false);
     scheduled_drive_events_.clear();
     scheduled_sample_events_.clear();
+    scheduled_alert_events_.clear();
     cycle_ = 0;
     phase_in_period_ = 0;
 }
@@ -160,6 +173,7 @@ void ATE::reset() {
     nrz_pending_default_flags_.fill(false);
     scheduled_drive_events_.clear();
     scheduled_sample_events_.clear();
+    scheduled_alert_events_.clear();
 
     advance_phase();
     advance_phase();
@@ -179,6 +193,7 @@ void ATE::reset() {
     nrz_pending_default_flags_.fill(false);
     scheduled_drive_events_.clear();
     scheduled_sample_events_.clear();
+    scheduled_alert_events_.clear();
     cycle_ = 0;
     phase_in_period_ = 0;
 }
@@ -192,24 +207,39 @@ void ATE::tick() {
 void ATE::advance_phase() {
     execute_scheduled_drive_events_();
     execute_scheduled_sample_events_();
+    execute_scheduled_alert_events_();
 
     socketp_->ATE_CLK = 0;
     socketp_->eval();
+#ifdef ATE_ENABLE_TRACE
     if (tfp_) {
         tfp_->dump(clock_++);
     }
+#endif
 
     socketp_->ATE_CLK = 1;
     socketp_->eval();
     capture_sample_if_ready_();
+#ifdef ATE_ENABLE_TRACE
     if (tfp_) {
         tfp_->dump(clock_++);
     }
+#endif
 
     clear_driv_();
     clear_samp_();
+    socketp_->ALERT = 0;
     ++phase_;
     phase_in_period_ = (phase_in_period_ + 1U) % timing_.period_phases;
+}
+
+void ATE::advance_to_phase(uint64_t target_phase) {
+    if (target_phase < phase_) {
+        throw std::invalid_argument("advance_to_phase target is earlier than current phase");
+    }
+    while (phase_ < target_phase) {
+        advance_phase();
+    }
 }
 
 // Public full timing-period advance. This is the vector-cycle primitive.
@@ -350,6 +380,47 @@ void ATE::commit_vector_row() {
     pulse_drive();
 }
 
+void ATE::schedule_input_pin_at(uint64_t due_phase,
+                                int pin,
+                                bool value,
+                                uint32_t pin_delay,
+                                uint32_t hold_duration,
+                                bool update_nrz_stable,
+                                bool default_value_event) {
+    validate_pin_index_(pin, kPinInCount, "absolute input pin event");
+    schedule_drive_event_(due_phase,
+                          pin,
+                          value,
+                          pin_delay,
+                          hold_duration,
+                          update_nrz_stable,
+                          default_value_event);
+}
+
+void ATE::schedule_input_field_at(uint64_t due_phase,
+                                  int lsb,
+                                  int width,
+                                  uint32_t value,
+                                  uint32_t pin_delay,
+                                  uint32_t hold_duration,
+                                  bool update_nrz_stable,
+                                  bool default_value_event) {
+    validate_field_(lsb, width, kPinInCount, "absolute input field event");
+    if (width < 32 && (value & ~fieldMask(width)) != 0U) {
+        throw std::invalid_argument("absolute input field value does not fit field width");
+    }
+
+    for (int i = 0; i < width; ++i) {
+        schedule_input_pin_at(due_phase,
+                              lsb + i,
+                              ((value >> i) & 1U) != 0U,
+                              pin_delay,
+                              hold_duration,
+                              update_nrz_stable,
+                              default_value_event);
+    }
+}
+
 void ATE::clear_output_pin_configs() {
     output_pin_configs_.clear();
 }
@@ -382,7 +453,24 @@ void ATE::expect_output_field(int lsb, int width, uint32_t expected, uint32_t pi
     }
     set_top_data(expected);
     const auto spec = CompareSpec::field(config.lsb, config.width, pin_delay, expected);
-    schedule_sample_event_(phase_ + timing_.sample_base_phase + timing_.sample_phase, spec);
+    schedule_sample_event_(
+        phase_with_offset_(phase_, timing_.sample_phase, timing_.sample_base_phase, "sample"),
+        spec);
+}
+
+void ATE::schedule_output_field_at(uint64_t due_phase,
+                                   int lsb,
+                                   int width,
+                                   uint32_t expected,
+                                   uint32_t pin_delay) {
+    const auto& config = output_pin_config_(lsb, width);
+    if (width < 32 && (expected & ~fieldMask(width)) != 0U) {
+        throw std::invalid_argument("absolute output field expected value does not fit field width");
+    }
+
+    set_top_data(expected);
+    const auto spec = CompareSpec::field(config.lsb, config.width, pin_delay, expected);
+    schedule_sample_event_(due_phase, spec);
 }
 
 // Public convenience helper: discard the currently staged drive operation.
@@ -407,6 +495,7 @@ void ATE::bind_drive_pin_wave(int pin,
 
     switch (waveform.kind) {
     case DriveWaveformKind::NRZ:
+    case DriveWaveformKind::RZ:
         bind_nrz_drive(pin, value, pin_delay);
         return;
     case DriveWaveformKind::RZZ:
@@ -424,6 +513,7 @@ void ATE::bind_drive_field_wave(int lsb,
 
     switch (waveform.kind) {
     case DriveWaveformKind::NRZ:
+    case DriveWaveformKind::RZ:
     case DriveWaveformKind::RZZ:
         for (int i = 0; i < width; ++i) {
             const bool default_bit = ((value >> i) & 1U) != 0U;
@@ -455,9 +545,12 @@ void ATE::pulse_drive() {
 
 void ATE::pulse_alert() {
     socketp_->ALERT = 1;
-    begin_vector_row();
-    commit_vector_row();
+    advance_phase();
     socketp_->ALERT = 0;
+}
+
+void ATE::schedule_alert_at(uint64_t due_phase) {
+    schedule_alert_event_(due_phase);
 }
 
 void ATE::sample() {
@@ -468,7 +561,9 @@ void ATE::sample() {
 void ATE::sample(const CompareSpec& spec) {
     validate_compare_spec_(spec);
 
-    schedule_sample_event_(phase_ + timing_.sample_base_phase + timing_.sample_phase, spec);
+    schedule_sample_event_(
+        phase_with_offset_(phase_, timing_.sample_phase, timing_.sample_base_phase, "sample"),
+        spec);
     pulse_samp_();
 }
 
@@ -503,6 +598,9 @@ bool ATE::compare_all() {
 // Public helper for updating the compare reference data presented to Comparer.
 void ATE::set_top_data(uint32_t data) {
     top_data_ = data & kCompareMask;
+    if (socketp_) {
+        socketp_->TOP_DATA = top_data_;
+    }
 }
 
 uint32_t ATE::get_top_data() {
@@ -818,12 +916,12 @@ void ATE::schedule_nrz_pending_drives_() {
     uint32_t updated_mask = 0;
     if (nrz_pending_mask_ != 0U) {
         updated_mask = nrz_pending_mask_;
+        const uint32_t nrz_phase =
+            phase_in_period_ <= timing_.nrz_rise_phase
+                ? timing_.nrz_rise_phase - phase_in_period_
+                : 0U;
         const uint64_t due_phase =
-            phase_ +
-            timing_.nrz_base_phase +
-            (phase_in_period_ <= timing_.nrz_rise_phase
-                 ? static_cast<uint64_t>(timing_.nrz_rise_phase - phase_in_period_)
-                 : 0ULL);
+            phase_with_offset_(phase_, nrz_phase, timing_.nrz_base_phase, "nrz");
 
         for (int pin = 0; pin < kPinInCount; ++pin) {
             const uint32_t mask = 1U << pin;
@@ -869,10 +967,16 @@ void ATE::schedule_rzz_bound_drives_() {
             continue;
         }
         const bool default_value = (rzz_default_values_ & mask) != 0U;
-        schedule_drive_event_(row_start_phase + timing_.rzz_base_phase + timing_.rzz_rise_phase,
+        schedule_drive_event_(phase_with_offset_(row_start_phase,
+                                                 timing_.rzz_rise_phase,
+                                                 timing_.rzz_base_phase,
+                                                 "rzz_rise"),
                               pin,
                               !default_value);
-        schedule_drive_event_(row_start_phase + timing_.rzz_base_phase + timing_.rzz_fall_phase,
+        schedule_drive_event_(phase_with_offset_(row_start_phase,
+                                                 timing_.rzz_fall_phase,
+                                                 timing_.rzz_base_phase,
+                                                 "rzz_fall"),
                               pin,
                               default_value);
     }
@@ -941,6 +1045,34 @@ void ATE::execute_scheduled_sample_events_() {
             break;
         }
     }
+}
+
+void ATE::schedule_alert_event_(uint64_t due_phase) {
+    const auto insert_at = std::upper_bound(
+        scheduled_alert_events_.begin(),
+        scheduled_alert_events_.end(),
+        due_phase);
+    scheduled_alert_events_.insert(insert_at, due_phase);
+}
+
+void ATE::execute_scheduled_alert_events_() {
+    while (!scheduled_alert_events_.empty() &&
+           scheduled_alert_events_.front() <= phase_) {
+        scheduled_alert_events_.pop_front();
+        socketp_->ALERT = 1;
+    }
+}
+
+uint64_t ATE::phase_with_offset_(uint64_t row_start_phase,
+                                 uint32_t waveform_phase,
+                                 int32_t base_phase,
+                                 const char* label) const {
+    const int64_t offset =
+        static_cast<int64_t>(waveform_phase) + static_cast<int64_t>(base_phase);
+    if (offset < 0) {
+        throw std::out_of_range(std::string("timing ") + label + " offset is before row start");
+    }
+    return row_start_phase + static_cast<uint64_t>(offset);
 }
 
 const InputPinConfig& ATE::input_pin_config_(int lsb, int width) const {
@@ -1103,6 +1235,9 @@ PYBIND11_MODULE(ate, m) {
         .def_readwrite("period_phases", &TimingSet::period_phases)
         .def_readwrite("nrz_rise_phase", &TimingSet::nrz_rise_phase)
         .def_readwrite("nrz_base_phase", &TimingSet::nrz_base_phase)
+        .def_readwrite("rz_rise_phase", &TimingSet::rz_rise_phase)
+        .def_readwrite("rz_return_phase", &TimingSet::rz_return_phase)
+        .def_readwrite("rz_base_phase", &TimingSet::rz_base_phase)
         .def_readwrite("rzz_rise_phase", &TimingSet::rzz_rise_phase)
         .def_readwrite("rzz_fall_phase", &TimingSet::rzz_fall_phase)
         .def_readwrite("rzz_base_phase", &TimingSet::rzz_base_phase)
@@ -1111,6 +1246,7 @@ PYBIND11_MODULE(ate, m) {
 
     py::enum_<DriveWaveformKind>(m, "DriveWaveformKind")
         .value("NRZ", DriveWaveformKind::NRZ)
+        .value("RZ", DriveWaveformKind::RZ)
         .value("RZZ", DriveWaveformKind::RZZ);
 
     py::class_<DriveWaveform>(m, "DriveWaveform")
@@ -1118,6 +1254,7 @@ PYBIND11_MODULE(ate, m) {
         .def_readwrite("kind", &DriveWaveform::kind)
         .def_readwrite("default_value", &DriveWaveform::default_value)
         .def_static("nrz", &DriveWaveform::nrz, py::arg("default_value") = false)
+        .def_static("rz", &DriveWaveform::rz, py::arg("default_value") = false)
         .def_static("rzz", &DriveWaveform::rzz, py::arg("default_value") = false);
 
     py::class_<ATE>(m, "ATE")
@@ -1127,6 +1264,7 @@ PYBIND11_MODULE(ate, m) {
              py::arg("top_data_init") = 0)
         .def("tick", &ATE::tick)
         .def("advance_phase", &ATE::advance_phase)
+        .def("advance_to_phase", &ATE::advance_to_phase, py::arg("target_phase"))
         .def("advance_period", &ATE::advance_period)
         .def("run_cycles", &ATE::run_cycles, py::arg("cycles"))
         .def("reset", &ATE::reset)
@@ -1178,6 +1316,25 @@ PYBIND11_MODULE(ate, m) {
              py::arg("value"),
              py::arg("pin_delay") = 0)
         .def("commit_vector_row", &ATE::commit_vector_row)
+        .def("schedule_input_pin_at",
+             &ATE::schedule_input_pin_at,
+             py::arg("due_phase"),
+             py::arg("pin"),
+             py::arg("value"),
+             py::arg("pin_delay") = 0,
+             py::arg("hold_duration") = 0,
+             py::arg("update_nrz_stable") = false,
+             py::arg("default_value_event") = false)
+        .def("schedule_input_field_at",
+             &ATE::schedule_input_field_at,
+             py::arg("due_phase"),
+             py::arg("lsb"),
+             py::arg("width"),
+             py::arg("value"),
+             py::arg("pin_delay") = 0,
+             py::arg("hold_duration") = 0,
+             py::arg("update_nrz_stable") = false,
+             py::arg("default_value_event") = false)
         .def("clear_output_pin_configs", &ATE::clear_output_pin_configs)
         .def("configure_output_pin",
              &ATE::configure_output_pin,
@@ -1186,6 +1343,13 @@ PYBIND11_MODULE(ate, m) {
              py::arg("default_value") = 0)
         .def("expect_output_field",
              &ATE::expect_output_field,
+             py::arg("lsb"),
+             py::arg("width"),
+             py::arg("expected"),
+             py::arg("pin_delay") = 0)
+        .def("schedule_output_field_at",
+             &ATE::schedule_output_field_at,
+             py::arg("due_phase"),
              py::arg("lsb"),
              py::arg("width"),
              py::arg("expected"),
@@ -1209,6 +1373,7 @@ PYBIND11_MODULE(ate, m) {
              py::arg("pin_delay") = 0)
         .def("pulse_drive", &ATE::pulse_drive)
         .def("pulse_alert", &ATE::pulse_alert)
+        .def("schedule_alert_at", &ATE::schedule_alert_at, py::arg("due_phase"))
         .def("sample", py::overload_cast<>(&ATE::sample))
         .def("sample", py::overload_cast<const CompareSpec&>(&ATE::sample), py::arg("spec"))
         .def("compare_last", &ATE::compare_last)

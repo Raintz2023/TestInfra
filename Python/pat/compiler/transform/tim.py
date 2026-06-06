@@ -19,6 +19,15 @@ class TimToIR(Transformer):
     def nrz_base_spec(self, nrz_base_phase):
         return ("nrz_base_phase", int(nrz_base_phase))
 
+    def rz_spec(self, rz_rise_phase):
+        return ("rz_rise_phase", int(rz_rise_phase))
+
+    def rz_return_spec(self, rz_return_phase):
+        return ("rz_return_phase", int(rz_return_phase))
+
+    def rz_base_spec(self, rz_base_phase):
+        return ("rz_base_phase", int(rz_base_phase))
+
     def rzz_rise_spec(self, rzz_rise_phase):
         return ("rzz_rise_phase", int(rzz_rise_phase))
 
@@ -53,6 +62,9 @@ class TimToIR(Transformer):
             period_phases=fields["period_phases"],
             nrz_rise_phase=fields["nrz_rise_phase"],
             nrz_base_phase=fields.get("nrz_base_phase", 0),
+            rz_rise_phase=fields.get("rz_rise_phase", fields["nrz_rise_phase"]),
+            rz_return_phase=fields.get("rz_return_phase", fields["rzz_rise_phase"]),
+            rz_base_phase=fields.get("rz_base_phase", 0),
             rzz_rise_phase=fields["rzz_rise_phase"],
             rzz_fall_phase=fields["rzz_fall_phase"],
             rzz_base_phase=fields.get("rzz_base_phase", 0),

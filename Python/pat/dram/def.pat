@@ -17,8 +17,8 @@ DEFINE
     }
 
     CMD DRV(dq_in) {
-        DRIVE DRIV;          <DELAY>
-        DRIVE DQ_IN = dq_in; <DELAY>
+        DRIVE DQ_RX_VALID;       <DELAY>
+        DRIVE DQ_RX_DATA = dq_in; <DELAY>
     }
 
     CMD RD(addr) {
@@ -27,11 +27,11 @@ DEFINE
     }
 
     CMD SMP(expect) {
-        SAMPLE DQ_OUT = expect; <DELAY>
+        SAMPLE DQ_TX_DATA = expect; <DELAY>
     }
 
     CMD SMP_MR(expect) {
-        SAMPLE MR_OUT = expect; <DELAY>
+        SAMPLE DQ_TX_DATA = expect; <DELAY>
     }
 
     CMD RST() {

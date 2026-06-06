@@ -17,6 +17,7 @@ USER_NAME: /[A-Z][A-Z0-9_]*/
 
 ?term: HEX           -> hex_lit
      | INT           -> int_lit
+     | "/" USER_NAME -> invert_var
      | USER_NAME     -> var
 
 HEX: /0[xX][0-9a-fA-F]+/

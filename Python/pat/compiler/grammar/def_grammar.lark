@@ -2,7 +2,7 @@
 
 command_block: "DEFINE" command_def* "END"
 
-command_def: "CMD" CMD_NAME "(" param_list? ")" "{" command_action+ "}" ";"?
+command_def: "CMD" CMD_NAME "(" param_list? ")" "{" command_action* "}" ";"?
 
 param_list: PARAM_NAME ("," PARAM_NAME)*
 

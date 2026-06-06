@@ -6,6 +6,6 @@
 
 struct AteSocketConfig {
     static constexpr int kOffsetWidth = 5;
-    static constexpr int kPinInCount = 26;
-    static constexpr int kPinOutCount = 12;
+    static constexpr int kPinInCount = 24;
+    static constexpr int kPinOutCount = 4;
 };

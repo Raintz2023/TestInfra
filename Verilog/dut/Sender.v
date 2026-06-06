@@ -1,13 +1,13 @@
 module Sender(
-    input                   [ 0 : 0]        CLK, 
+    input                   [ 0 : 0]        CLK,
     input                   [ 0 : 0]        RST_N,
 
-    output      wire        [ 0 : 0]        DOUT,
+    output      wire        [ 0 : 0]        BIT_OUT,
     output      wire        [ 0 : 0]        BUSY,
-    output      wire        [ 0 : 0]        DONE,
+    output      wire        [ 0 : 0]        VALID,
 
     input                   [ 0 : 0]        START,
-    input                   [ 7 : 0]        DIN
+    input                   [ 7 : 0]        DATA
 );
     localparam WAIT_STATE = 0;
     localparam BUSY_STATE = 1;
@@ -17,9 +17,9 @@ module Sender(
     reg [3:0] bit_counts;
     reg [2:0] current_state;
 
-    assign DOUT = (current_state != BUSY_STATE)? 1'b1: pipe[9];
+    assign BIT_OUT = (current_state != BUSY_STATE)? 1'b1: pipe[9];
     assign BUSY = (current_state == BUSY_STATE)? 1'b1: 1'b0;
-    assign DONE = (current_state == DONE_STATE)? 1'b1: 1'b0;
+    assign VALID = (current_state == DONE_STATE)? 1'b1: 1'b0;
 
     always @(posedge CLK) begin
         if (!RST_N) begin
@@ -31,7 +31,7 @@ module Sender(
             if (current_state == DONE_STATE)
                 current_state <= WAIT_STATE;
             else if (current_state != BUSY_STATE && START) begin
-                pipe <= {1'b0, DIN, 1'b1};
+                pipe <= {1'b0, DATA, 1'b1};
                 current_state <= BUSY_STATE;
                 bit_counts <= 4'd1;
             end
@@ -50,4 +50,3 @@ module Sender(
     end
 
 endmodule
-

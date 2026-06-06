@@ -1,6 +1,7 @@
 import importlib.util
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from ate import ATE
@@ -56,49 +57,59 @@ def load_pattern_runtime(pattern_name):
     return pattern_module, run, getattr(pattern_module, "build_timings", None)
 
 
-def make_wave_path(name: str) -> str:
-    return str(get_ti_root() / "Python" / "wave" / name)
+@dataclass
+class AteSession:
+    """One ATE instance plus the generated pattern runner bound to it."""
+
+    ate: ATE
+    runtime: "PatternRuntime"
+
+    def run(self, testflow_num: int = 1, **kwargs):
+        """Run the generated pattern. Timing updates are intentionally passed here."""
+        return self.runtime.run(self.ate, testflow_num, **kwargs)
+
+    def print_samples(self, enabled: bool = False) -> None:
+        """Print captured sample records only when explicitly requested."""
+        if enabled:
+            self.ate.print_sample_records()
+
+    def print_compare_results(self) -> None:
+        """Print compact pass/fail comparison output from the C++ ATE object."""
+        self.ate.print_compare_results_and()
 
 
-def make_ate(wave_name: str,
-             trace_enable: bool = True,
-             top_data: int = 0) -> ATE:
-    return ATE(
-        wave_name=wave_name,
-        trace_enable=trace_enable,
-        top_data_init=top_data,
-    )
+class PatternRuntime:
+    """Loaded generated pattern plus helper methods used by macro flows.
 
+    Timing is not applied before running. The generated run() function owns
+    timing selection and receives timing_updates directly, which keeps row-local
+    TS behavior in one place.
+    """
 
-def apply_timing(ate: ATE,
-                 pattern_name: str,
-                 build_timings,
-                 timing_name: str,
-                 timing_updates=None) -> None:
-    if not timing_name:
-        return
-    if build_timings is None:
-        raise RuntimeError(f"Pattern {pattern_name} has no build_timings()")
-    ti_root_str = str(get_ti_root())
-    if ti_root_str not in sys.path:
-        sys.path.insert(0, ti_root_str)
-    from Python.pat.runtime import apply_timing_updates
+    def __init__(self, pattern_name: str) -> None:
+        self.pattern_name = pattern_name
+        self.module, self._run, self.build_timings = load_pattern_runtime(pattern_name)
 
-    timings = apply_timing_updates(build_timings(), timing_updates)
-    if timing_name not in timings:
-        raise RuntimeError(f"Unknown timing set {timing_name} for pattern {pattern_name}")
-    ate.set_timing(timings[timing_name])
+    def wave_path(self, name: str) -> str:
+        return str(get_ti_root() / "Python" / "wave" / name)
 
+    def create_session(self,
+                       wave_name: str,
+                       trace_enable: bool = True,
+                       top_data: int = 0) -> AteSession:
+        ate = ATE(
+            wave_name=wave_name,
+            trace_enable=trace_enable,
+            top_data_init=top_data,
+        )
+        return AteSession(ate=ate, runtime=self)
 
-def print_sample_records(ate: ATE, enabled: bool = False) -> None:
-    if enabled:
-        ate.print_sample_records()
+    def run(self, ate: ATE, testflow_num: int = 1, **kwargs):
+        return self._run(ate, testflow_num, **kwargs)
 
-
-def first_range_value(s: str, default: int) -> int:
-    return next(iter(parse_range(s))) if s else default
 
 def parse_range(s: str) -> range:
+    """Parse scan ranges written as start:end[:step]."""
     parts = list(map(int, s.split(":")))
 
     if len(parts) == 2:

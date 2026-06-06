@@ -11,7 +11,7 @@ def compile_pattern(in_path: str | Path,
                     func_name: str = "run",
                     use_paths=None,
                     include_paths=None) -> int:
-    testflow_list, command_defs, ir_list, schema_module_name, timing_names = compile_pattern_ir(
+    testflow_list, command_defs, ir_list, schema_module_name, timing_names, registers = compile_pattern_ir(
         str(in_path),
         use_paths=use_paths,
         include_paths=include_paths,
@@ -29,6 +29,7 @@ def compile_pattern(in_path: str | Path,
         func_name=func_name,
         schema_module_name=schema_module_name,
         timing_names=timing_names,
+        registers=registers,
     )
 
     print(f"[OK] {in_path} -> {out_path}  (IR={len(ir_list)})")
