@@ -3,13 +3,15 @@
 module PinOutAdapter(
     input  wire DQ_IE,
     input  wire DQ_TX_BIT,
+    input  wire DQS_TX_BIT,
     input  wire DQ_OE,
     input  wire DQ_OUT_VALID,
-    output wire [3:0] PIN_OUT
+    output wire [4:0] PIN_OUT
 );
     assign PIN_OUT[0]      = DQ_IE;
     assign PIN_OUT[1]      = DQ_TX_BIT;
-    assign PIN_OUT[2]      = DQ_OE;
-    assign PIN_OUT[3]      = DQ_OUT_VALID;
+    assign PIN_OUT[2]      = DQS_TX_BIT;
+    assign PIN_OUT[3]      = DQ_OE;
+    assign PIN_OUT[4]      = DQ_OUT_VALID;
 
 endmodule

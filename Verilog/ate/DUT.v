@@ -2,21 +2,22 @@
 
 module DUT(
     input  wire [23:0] IN,
-    output wire [3:0] OUT
+    output wire [4:0] OUT
 );
     wire       CLK;
     wire       RST_N;
-    wire       DQ_RX_START;
     wire       R;
     wire       W;
     wire [7:0] ADDR;
     wire       DQ_RX_BIT;
+    wire       DQS_RX_BIT;
     wire [7:0] MR_IN;
     wire       MRW;
     wire       MRR;
 
     wire       DQ_IE;
     wire       DQ_TX_BIT;
+    wire       DQS_TX_BIT;
     wire       DQ_OE;
     wire       DQ_OUT_VALID;
 
@@ -24,11 +25,11 @@ module DUT(
         .PIN_IN      (IN),
         .CLK         (CLK),
         .RST_N       (RST_N),
-        .DQ_RX_START (DQ_RX_START),
         .R           (R),
         .W           (W),
         .ADDR        (ADDR),
         .DQ_RX_BIT   (DQ_RX_BIT),
+        .DQS_RX_BIT  (DQS_RX_BIT),
         .MR_IN       (MR_IN),
         .MRW         (MRW),
         .MRR         (MRR)
@@ -37,16 +38,17 @@ module DUT(
     Chip u_dut (
         .CLK         (CLK),
         .RST_N       (RST_N),
-        .DQ_RX_START (DQ_RX_START),
         .R           (R),
         .W           (W),
         .ADDR        (ADDR),
         .DQ_RX_BIT   (DQ_RX_BIT),
+        .DQS_RX_BIT  (DQS_RX_BIT),
         .MR_IN       (MR_IN),
         .MRW         (MRW),
         .MRR         (MRR),
         .DQ_IE       (DQ_IE),
         .DQ_TX_BIT   (DQ_TX_BIT),
+        .DQS_TX_BIT  (DQS_TX_BIT),
         .DQ_OE       (DQ_OE),
         .DQ_OUT_VALID(DQ_OUT_VALID)
     );
@@ -54,6 +56,7 @@ module DUT(
     PinOutAdapter u_pin_out_adapter (
         .DQ_IE       (DQ_IE),
         .DQ_TX_BIT   (DQ_TX_BIT),
+        .DQS_TX_BIT  (DQS_TX_BIT),
         .DQ_OE       (DQ_OE),
         .DQ_OUT_VALID(DQ_OUT_VALID),
         .PIN_OUT     (OUT)

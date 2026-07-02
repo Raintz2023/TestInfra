@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import re
 from pathlib import Path
 from typing import Literal, TypedDict
@@ -75,41 +74,12 @@ def entries_from_ports(ports: dict[str, PortInfo], direction: Literal["input", "
     return entries
 
 
-def build_pinmap(dut: str, ports: dict[str, PortInfo]) -> PinMapConfig:
+def build_config_from_ports(dut: str, ports: dict[str, PortInfo]) -> PinMapConfig:
     return PinMapConfig(
         dut=dut,
         pin_in=entries_from_ports(ports, "input"),
         pin_out=entries_from_ports(ports, "output"),
     )
-
-
-def load_pinmap(path: Path) -> PinMapConfig:
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    return PinMapConfig(
-        dut=raw["dut"],
-        pin_in=[PinEntry(port=e["port"], lsb=int(e["lsb"]), msb=int(e["msb"])) for e in raw["pin_in"]],
-        pin_out=[PinEntry(port=e["port"], lsb=int(e["lsb"]), msb=int(e["msb"])) for e in raw["pin_out"]],
-    )
-
-
-def entry_width(entry: PinEntry) -> int:
-    return entry["msb"] - entry["lsb"] + 1
-
-
-def validate_pinmap(config: PinMapConfig, ports: dict[str, PortInfo]) -> None:
-    if config["dut"] != config["dut"].strip():
-        raise ValueError("dut name in pinmap has leading/trailing spaces")
-    for entries, direction in ((config["pin_in"], "input"), (config["pin_out"], "output")):
-        for entry in entries:
-            port = entry["port"]
-            if port not in ports:
-                raise ValueError(f"pinmap references unknown port {port}")
-            if ports[port]["direction"] != direction:
-                raise ValueError(f"pinmap port {port} direction mismatch: expected {direction}")
-            if ports[port]["width"] != entry_width(entry):
-                raise ValueError(
-                    f"pinmap port {port} width mismatch: RTL={ports[port]['width']} pinmap={entry_width(entry)}"
-                )
 
 
 def pin_text(entry: PinEntry) -> str:
@@ -133,7 +103,7 @@ def input_waveform(port: str) -> str:
 
 
 def emit_soc(config: PinMapConfig) -> str:
-    lines = ["SOCKET"]
+    lines = ["SOCKET {"]
     for entry in config["pin_in"]:
         lines.append(
             f"    IN  {entry['port']:<12} {{ PIN: {pin_text(entry):<8}, WAV: {input_waveform(entry['port'])}, DEF: {input_default(entry['port'])} }}"
@@ -141,37 +111,43 @@ def emit_soc(config: PinMapConfig) -> str:
     lines.append("")
     for entry in config["pin_out"]:
         lines.append(
-            f"    OUT {entry['port']:<12} {{ PIN: {pin_text(entry):<8}, WAV: STB, EXP: 0 }}"
+            f"    OUT {entry['port']:<12} {{ PIN: {pin_text(entry):<8}, WAV: STB }}"
         )
-    lines.append("END")
+    lines.append("}")
     lines.append("")
     return "\n".join(lines)
 
 
-def emit_def() -> str:
+def emit_cmd() -> str:
     return "\n".join([
-        "DEFINE",
+        "COMMAND {",
         "    // Add DUT command definitions here.",
         "    //",
         "    // Examples:",
-        "    // CMD SET_PIN(value) {",
+        "    // SET_PIN(value) {",
         "    //     DRIVE PIN_NAME = value;",
         "    // }",
         "    //",
-        "    // CMD SAMPLE_PIN(expect) {",
+        "    // SAMPLE_PIN(expect) {",
         "    //     SAMPLE PIN_NAME = expect;",
         "    // }",
-        "END",
+        "}",
         "",
     ])
 
 
 def emit_tim() -> str:
     return "\n".join([
-        "TIMING",
+        "TIMING {",
         "    // Starter timing set. Tune the phases for the DUT before real runs.",
-        "    TS0 { PRD: 10, NRZ: 1, NRZ_BASE: 0, RZZ_RISE: 2, RZZ_FALL: 7, RZZ_BASE: 0, STB: 8, STB_BASE: 0 }",
-        "END",
+        "    TS0 {",
+        "        PRD: 10",
+        "        NRZ { EDGE: 1, BASE: 0 }",
+        "        RZ  { EDGE_1: 2, EDGE_2: 4, BASE: 0 }",
+        "        RZZ { EDGE_1: 2, EDGE_2: 7, BASE: 0 }",
+        "        STB { EDGE: 8, BASE: 0 }",
+        "    }",
+        "}",
         "",
     ])
 
@@ -192,9 +168,9 @@ def schema_name(dut: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Generate pinmap and starter Python pattern schema from RTL ports.")
+    parser = argparse.ArgumentParser(description="Generate starter Python pattern schema from RTL port order.")
     parser.add_argument("dut", help="DUT module name, e.g. Dram or Chip")
-    parser.add_argument("--force", action="store_true", help="overwrite existing pinmap/schema files")
+    parser.add_argument("--force", action="store_true", help="overwrite existing schema files")
     args = parser.parse_args(argv)
 
     root = project_root()
@@ -203,21 +179,12 @@ def main(argv: list[str] | None = None) -> int:
         raise FileNotFoundError(f"DUT RTL not found: {dut_path}")
 
     ports = parse_ports(dut_path.read_text(encoding="utf-8", errors="replace"), args.dut)
-    pinmap_path = root / "Verilog" / "pinmap" / f"{args.dut}.pinmap.json"
-
-    if pinmap_path.exists() and not args.force:
-        config = load_pinmap(pinmap_path)
-        validate_pinmap(config, ports)
-        pinmap_status = "kept"
-    else:
-        config = build_pinmap(args.dut, ports)
-        pinmap_status = write_text(pinmap_path, json.dumps(config, indent=2) + "\n", force=True)
+    config = build_config_from_ports(args.dut, ports)
 
     schema_dir = root / "Python" / "pat" / schema_name(args.dut)
     statuses = {
-        pinmap_path: pinmap_status,
         schema_dir / "soc.pat": write_text(schema_dir / "soc.pat", emit_soc(config), args.force),
-        schema_dir / "def.pat": write_text(schema_dir / "def.pat", emit_def(), args.force),
+        schema_dir / "cmd.pat": write_text(schema_dir / "cmd.pat", emit_cmd(), args.force),
         schema_dir / "tim.pat": write_text(schema_dir / "tim.pat", emit_tim(), args.force),
     }
 

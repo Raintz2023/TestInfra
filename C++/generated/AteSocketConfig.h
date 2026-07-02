@@ -2,10 +2,10 @@
 
 #pragma once
 
-// Generated from Verilog/pinmap/Chip.pinmap.json. Do not edit by hand.
+// Generated from Verilog/dut/Chip.v. Do not edit by hand.
 
 struct AteSocketConfig {
     static constexpr int kOffsetWidth = 5;
     static constexpr int kPinInCount = 24;
-    static constexpr int kPinOutCount = 4;
+    static constexpr int kPinOutCount = 5;
 };

@@ -1,17 +1,22 @@
 ?start: socket_def
 
 socket_def: "SOCKET" socket_entry+ "END"
+          | "SOCKET" "{" socket_entry+ "}"
 
-socket_entry: DIRECTION NAME "{" "PIN" ":" pin_range "," "WAV" ":" WAVE_NAME "," DEFAULT_KIND ":" value "}"
+?socket_entry: input_entry
+             | output_entry
+
+input_entry: "IN" NAME "{" "PIN" ":" pin_range "," "WAV" ":" wave_ref "," "DEF" ":" value "}"
+output_entry: "OUT" NAME "{" "PIN" ":" pin_range "," "WAV" ":" wave_ref "}"
 pin_range: INT              -> single_pin
          | "[" INT ":" INT "]" -> range_pin
+wave_ref: WAVE_NAME ("@" VARIANT_NAME)?
 
 ?value: HEX           -> hex_lit
       | INT           -> int_lit
 
-DIRECTION: "IN" | "OUT"
-DEFAULT_KIND: "DEF" | "EXP"
 WAVE_NAME: /[A-Za-z_][A-Za-z0-9_]*/
+VARIANT_NAME: /[A-Za-z_][A-Za-z0-9_]*/
 NAME: /[A-Za-z_][A-Za-z0-9_]*/
 HEX: /0[xX][0-9a-fA-F]+/
 

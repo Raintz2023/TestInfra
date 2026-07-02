@@ -1,21 +1,32 @@
 ?start: command_block
 
-command_block: "DEFINE" command_def* "END"
+command_block: ("COMMAND" | "DEFINE") command_def* "END"
+             | ("COMMAND" | "DEFINE") "{" command_def* "}"
 
-command_def: "CMD" CMD_NAME "(" param_list? ")" "{" command_action* "}" ";"?
+?command_def: bare_command_def
+            | legacy_command_def
+
+bare_command_def: CMD_NAME "(" param_list? ")" "{" command_action* "}" ";"?
+legacy_command_def: "CMD" CMD_NAME "(" param_list? ")" "{" command_action* "}" ";"?
 
 param_list: PARAM_NAME ("," PARAM_NAME)*
 
 ?command_action: drive_action
+               | pulse_action
                | sample_action
 
-drive_action: "DRIVE" PIN_NAME ("=" PARAM_NAME)? ";"? delay_suffix?
-sample_action: "SAMPLE" PIN_NAME "=" PARAM_NAME ";"? delay_suffix?
+drive_action: "DRIVE" PIN_NAME ("=" action_value)? ";"? delay_suffix?
+pulse_action: "PULSE" PIN_NAME ";"? delay_suffix?
+sample_action: "SAMPLE" PIN_NAME "=" action_value ";"? delay_suffix?
 delay_suffix: "<" "DELAY" ">"
+
+?action_value: PARAM_NAME
+             | INT
 
 CMD_NAME: /[A-Z][A-Z0-9_]*/
 PIN_NAME: /[A-Z][A-Z0-9_]*/
 PARAM_NAME: /[a-z_][a-z0-9_]*/
+%import common.INT
 %import common.WS
 %ignore WS
 %ignore /\/\/[^\n]*/

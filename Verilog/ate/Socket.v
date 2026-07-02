@@ -1,6 +1,6 @@
 module Socket #(
     parameter PIN_IN_NUM  = 24,
-    parameter PIN_OUT_NUM = 4,
+    parameter PIN_OUT_NUM = 5,
     parameter DEPTH    = 32,
     parameter OFFSET_W = $clog2(DEPTH),
     parameter DELAY_W  = 32

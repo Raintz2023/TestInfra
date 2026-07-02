@@ -5,7 +5,7 @@ from Python.pat.compiler.parser import parse_cmd, parse_ctrl, parse_reg
 from Python.pat.compiler.pat_reader import read_pat
 from Python.pat.compiler.row_utils import cmd_texts_from_row, reg_texts_from_row
 from Python.pat.compiler.schema_compiler import compile_schema
-from Python.pat.compiler.registers import RegisterSet
+from Python.pat.compiler.registers import RegisterRole, RegisterSet
 from Python.pat.compiler.transform.cmd import CmdToIR
 from Python.pat.compiler.transform.ctrl import CtrlToIR
 from Python.pat.compiler.transform.reg import RegToIR
@@ -17,33 +17,33 @@ def _register_allowed_lhs(registers: RegisterSet) -> set[str]:
 
 
 def _register_allowed_rhs(registers: RegisterSet) -> set[str]:
-    allowed_families = {"X", "Y", "Z", "TEMP"}
     names: set[str] = set()
     for binding in registers.bindings:
-        if binding.family in allowed_families:
+        if binding.role == RegisterRole.ARG:
             names.add(binding.internal_name)
             names.add(binding.external_name)
-            names.add(binding.family)
+            if binding.scalar_alias:
+                names.add(binding.family)
     return names
 
 
-def _register_family(registers: RegisterSet, name: str) -> str | None:
-    return registers.families_by_name.get(name)
+def _register_role(registers: RegisterSet, name: str) -> RegisterRole | None:
+    return registers.roles_by_name.get(registers.canonical_name(name))
 
 
 def _validate_ctrl_register(ins, registers: RegisterSet) -> None:
     if not isinstance(ins, (FOR, GOTO)) or isinstance(ins.times, int):
         return
-    family = _register_family(registers, ins.times)
-    if family != "LOOP":
+    role = _register_role(registers, ins.times)
+    if role != RegisterRole.LOOP:
         ctrl_name = ins.__class__.__name__
         raise RuntimeError(
             f"{ctrl_name}-{ins.times} is invalid: Ctrl loop count can only use LOOP registers, "
-            f"but {ins.times} belongs to {family or 'no declared register family'}"
+            f"but {ins.times} belongs to {role.value if role else 'no declared register role'}"
         )
 
 
-def row_to_ir(row: Row, registers: RegisterSet):
+def row_to_ir(row: Row, registers: RegisterSet, functions: frozenset[str] = frozenset()):
     ir_list = []
 
     if not row.ctrl.split("#")[1]:
@@ -70,6 +70,7 @@ def row_to_ir(row: Row, registers: RegisterSet):
                         allowed_rhs=_register_allowed_rhs(registers),
                         register_widths=registers.widths,
                         register_families=registers.families_by_name,
+                        registers=registers,
                     ).transform(parsed)
                 )
             except Exception as exc:
@@ -82,8 +83,16 @@ def row_to_ir(row: Row, registers: RegisterSet):
         for cmd in cmd_texts:
             try:
                 parsed = parse_cmd(cmd)
-                ir_list.append(CmdToIR(register_widths=registers.widths).transform(parsed))
+                ir_list.append(
+                    CmdToIR(
+                        register_widths=registers.widths,
+                        registers=registers,
+                        functions=functions,
+                    ).transform(parsed)
+                )
             except Exception as exc:
+                if "DEQUE" in cmd or "POP" in cmd:
+                    raise RuntimeError(f"Unsupported CMD expression {cmd!r}: {exc}") from exc
                 ir_list.append(f"UNSUPPORTED_CMD({cmd!r})  err={exc}")
 
     return ir_list
@@ -97,7 +106,7 @@ def compile_pattern_ir(pat_path: str, use_paths=None, include_paths=None):
     registers = raw_pat.registers or RegisterSet.legacy()
 
     if not raw_pat.testflows and not raw_pat.def_lines and not raw_pat.rows:
-        return [], [], [], None, (), registers
+        return [], [], [], None, (), registers, raw_pat.functions
 
     if raw_pat.use_path is None:
         raise RuntimeError("Pattern must declare USE <schema_dir> before BEGIN")
@@ -111,11 +120,11 @@ def compile_pattern_ir(pat_path: str, use_paths=None, include_paths=None):
         raise RuntimeError("Inline DEF is no longer supported. Use USE <schema_dir> instead.")
 
     for row in raw_pat.rows:
-        ir_list.extend(row_to_ir(row, registers))
+        ir_list.extend(row_to_ir(row, registers, raw_pat.functions))
 
     testflow_list.extend(raw_pat.testflows)
 
     if not testflow_list:
         raise NoTestflowError(str(pat_path))
 
-    return testflow_list, command_defs, ir_list, schema_module_name, timing_names, registers
+    return testflow_list, command_defs, ir_list, schema_module_name, timing_names, registers, raw_pat.functions

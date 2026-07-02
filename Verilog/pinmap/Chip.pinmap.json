@@ -12,7 +12,7 @@
       "msb": 1
     },
     {
-      "port": "DQ_RX_START",
+      "port": "DQS_RX_BIT",
       "lsb": 2,
       "msb": 2
     },
@@ -62,6 +62,11 @@
       "port": "DQ_TX_BIT",
       "lsb": 1,
       "msb": 1
+    },
+    {
+      "port": "DQS_TX_BIT",
+      "lsb": 4,
+      "msb": 4
     },
     {
       "port": "DQ_OE",

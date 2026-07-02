@@ -68,6 +68,17 @@ set -gx PYTHONPATH $PYTHON_LIBS $PYTHONPATH
 
 function vbuild --description "Build Verilog sim with Verilator (TestInfra)"
 
+    set -l fast 0
+    set -l build_args
+    for arg in $argv
+        switch $arg
+            case --fast -f
+                set fast 1
+            case '*'
+                set -a build_args $arg
+        end
+    end
+
     # Build the Verilator sim directly from the current C++ workspace layout.
     for v in VERILOG_ATE VERILOG_DUT VERILOG_PIN CPP CPP_INC CPP_GEN CPP_SRC CPP_SIM
         if not set -q $v
@@ -81,6 +92,13 @@ function vbuild --description "Build Verilog sim with Verilator (TestInfra)"
             echo "vbuild: directory not found: $d" >&2
             return 2
         end
+    end
+
+    set -l trace_args --trace --trace-structs
+    set -l cflags "-std=c++20 -I$CPP_INC -I$CPP_GEN -fPIC -O3 -DNDEBUG -DATE_ENABLE_TRACE"
+    if test $fast -eq 1
+        set trace_args
+        set cflags "-std=c++20 -I$CPP_INC -I$CPP_GEN -fPIC -O3 -DNDEBUG -DVL_DEBUG=0"
     end
 
     pushd $CPP >/dev/null
@@ -112,7 +130,22 @@ function vbuild --description "Build Verilog sim with Verilator (TestInfra)"
     return $rc
 end
 
+function vbuild-fast --description "Build non-tracing Verilator sim for faster TestInfra runs"
+    vbuild --fast $argv
+end
+
 function cbuild --description "Build Cpp sim with pybind11 using CMake (TestInfra)"
+    set -l fast 0
+    set -l cmake_args
+    for arg in $argv
+        switch $arg
+            case --fast -f
+                set fast 1
+            case '*'
+                set -a cmake_args $arg
+        end
+    end
+
     # 必要环境变量检查
     for v in CPP CPP_SIM CPP_SRC CPP_INC CPP_GEN CPP_BUILD TI_PYTHON_BIN
         if not set -q $v
@@ -126,12 +159,23 @@ function cbuild --description "Build Cpp sim with pybind11 using CMake (TestInfr
         return 2
     end
 
+    set -l trace_opt ON
+    set -l build_type RelWithDebInfo
+    if test $fast -eq 1
+        set trace_opt OFF
+        set build_type Release
+    end
+
     pushd $CPP_BUILD >/dev/null
-    command cmake -DPython3_EXECUTABLE=$TI_PYTHON_BIN ..
+    command cmake -DPython3_EXECUTABLE=$TI_PYTHON_BIN -DATE_ENABLE_TRACE=$trace_opt -DCMAKE_BUILD_TYPE=$build_type $cmake_args ..
     command make
     set -l rc $status
     popd >/dev/null
     return $rc
+end
+
+function cbuild-fast --description "Build non-tracing pybind ATE module for faster TestInfra runs"
+    cbuild --fast $argv
 end
 
 function pbuild --description "Build Python sim with pattern using lark (TestInfra)"
@@ -151,6 +195,7 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
     command mkdir -p $PYTHON_PAT_GEN/run
 
     set -l pattern_args
+    set -l pattern_path "$PYTHON_PAT_PATTERN"
     set -l use_paths
     set -l include_paths
     set -l i 1
@@ -179,8 +224,20 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
                 set -a include_paths (string replace -- "--include-path=" "" $arg)
             case '-I=*'
                 set -a include_paths (string replace -- "-I=" "" $arg)
+            case -P --pattern-path
+                set i (math $i + 1)
+                if test $i -gt (count $argv)
+                    echo "pbuild: $arg requires a path" >&2
+                    return 2
+                end
+                set pattern_path $argv[$i]
+            case '--pattern-path=*'
+                set pattern_path (string replace -- "--pattern-path=" "" $arg)
+            case '-P=*'
+                set pattern_path (string replace -- "-P=" "" $arg)
             case --help -h
-                echo "Usage: pbuild [-U USE_PATH] [-I INCLUDE_PATH] [pattern]"
+                echo "Usage: pbuild [-P PATTERN_PATH] [-U USE_PATH] [-I INCLUDE_PATH] [pattern]"
+                echo "Example: pbuild -P \$PYTHON/pat/handshakeecho HandshakeEcho"
                 echo "Example: pbuild -U \$PYTHON/pat -I \$PYTHON_PAT_PATTERN Base"
                 return 0
             case '-*'
@@ -201,7 +258,7 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
         set -a use_paths "$PYTHON/pat"
     end
     if test (count $include_paths) -eq 0
-        set -a include_paths "$PYTHON_PAT_PATTERN"
+        set -a include_paths "$pattern_path"
     end
 
     set -l pbuild_path_args
@@ -242,10 +299,10 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
     end
     popd >/dev/null
 
-    # ---- 无参数：遍历编译默认 pattern 目录 ----
+    # ---- 无参数：遍历编译 pattern 目录 ----
     if test (count $pattern_args) -eq 0
         set -l compiled 0
-        for in_file in $PYTHON_PAT_PATTERN/*.pat
+        for in_file in $pattern_path/*.pat
             if not test -f $in_file
                 continue
             end
@@ -261,7 +318,7 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
         end
 
         functions -e __pbuild_compile_one
-        echo "pbuild: compiled $compiled pattern file(s) from $PYTHON_PAT_PATTERN"
+        echo "pbuild: compiled $compiled pattern file(s) from $pattern_path"
         return 0
     end
 
@@ -274,12 +331,12 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
         if test -f $in_arg
             set in_file $in_arg
         else
-            set in_file "$PYTHON_PAT_PATTERN/$in_arg"
+            set in_file "$pattern_path/$in_arg"
         end
         set stem (basename $in_arg .pat)
     else
         set stem $in_arg
-        set in_file "$PYTHON_PAT_PATTERN/$stem.pat"
+        set in_file "$pattern_path/$stem.pat"
     end
 
     if not test -f $in_file
@@ -294,7 +351,7 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
     return $rc
 end
 
-function pingen --description "Generate pinmap/schema, Verilog pin adapters, and DUT wrapper (TestInfra)"
+function pingen --description "Generate schema, Verilog pin adapters, and DUT wrapper from RTL port order (TestInfra)"
     for v in VERILOG TI TI_PYTHON_BIN
         if not set -q $v
             echo "pingen: missing env var '$v'" >&2
@@ -463,3 +520,13 @@ end
 if test -d /Users/lichenyu/Code/Learning/oss-cad-suite/bin
     set -gx PATH /Users/lichenyu/Code/Learning/oss-cad-suite/bin $PATH
 end
+
+set -x ANTHROPIC_BASE_URL https://api.deepseek.com/anthropic
+set -x ANTHROPIC_AUTH_TOKEN sk-e05e73df1dd046ba81c8ebb4b1058fd9
+set -x ANTHROPIC_MODEL deepseek-v4-pro[1m]
+set -x ANTHROPIC_DEFAULT_OPUS_MODEL deepseek-v4-pro[1m]
+set -x ANTHROPIC_DEFAULT_SONNET_MODEL deepseek-v4-pro[1m]
+set -x ANTHROPIC_DEFAULT_HAIKU_MODEL deepseek-v4-flash
+set -x CLAUDE_CODE_SUBAGENT_MODEL deepseek-v4-flash
+set -x CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 1
+set -x CLAUDE_CODE_EFFORT_LEVEL max

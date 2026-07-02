@@ -5,7 +5,7 @@ import re
 
 from Python.pat.compiler.definitions import CommandDef
 from Python.pat.compiler.ir import *
-from Python.pat.compiler.registers import RegisterSet
+from Python.pat.compiler.registers import RegisterRole, RegisterSet
 from Python.pat.compiler.types import *
 
 
@@ -19,6 +19,14 @@ def _validate_commands(command_defs: list[CommandDef]) -> None:
         if command_def.name in seen:
             raise ValueError(f"Duplicate CMD {command_def.name}")
         seen.add(command_def.name)
+
+
+def _validate_reserved_runtime_names(registers: RegisterSet) -> None:
+    reserved = {"DEQUE"}
+    conflicts = reserved.intersection(registers.local_names)
+    if conflicts:
+        names = ", ".join(sorted(conflicts))
+        raise ValueError(f"{names} is reserved for runtime data sources and cannot be a REGISTER name or alias")
 
 
 def _expected_arg_count(command_def: CommandDef) -> int:
@@ -49,7 +57,7 @@ _EXPR_NAME_RE = re.compile(r"\b[A-Z][A-Z0-9_]*\b")
 def _expr_register_names(expr: str | int) -> set[str]:
     if isinstance(expr, int):
         return set()
-    return {name for name in _EXPR_NAME_RE.findall(expr) if name not in {"T", "F"}}
+    return set(_EXPR_NAME_RE.findall(expr))
 
 
 def _command_param_kinds(command_def: CommandDef) -> dict[int, set[str]]:
@@ -67,24 +75,39 @@ def _command_param_kinds(command_def: CommandDef) -> dict[int, set[str]]:
 
 
 def _validate_cmd_args(ins: UserCmdCall, command_def: CommandDef, registers: RegisterSet) -> None:
-    families = registers.families_by_name
+    roles = registers.roles_by_name
     param_kinds = _command_param_kinds(command_def)
     for index, arg in enumerate(ins.args):
         names = _expr_register_names(arg)
         for name in names:
-            family = families.get(name)
-            if family is None:
-                raise ValueError(f"command {ins.name} uses undeclared register {name}")
-            if family == "DELAY":
+            canonical = registers.canonical_name(name)
+            role = roles.get(canonical)
+            if role is None:
+                raise ValueError(f"command {ins.name} uses undeclared register {name}: {registers.undeclared_name_error(name)}")
+            if role == RegisterRole.DELAY:
                 raise ValueError(f"command {ins.name} cannot pass DELAY as an argument")
-            if "SAMPLE" in param_kinds.get(index, set()) and family != "DATA":
-                raise ValueError(f"command {ins.name} sample expect must use DATA register, got {name}")
+            if role == RegisterRole.LOOP:
+                raise ValueError(f"command {ins.name} cannot pass LOOP register as an argument")
+            if "SAMPLE" in param_kinds.get(index, set()):
+                if role != RegisterRole.EXPECT:
+                    raise ValueError(f"command {ins.name} sample expect must use EXPECT register, got {name}")
 
 
 def _register_check_lines(registers: RegisterSet) -> list[str]:
     lines: list[str] = []
-    for name, width in registers.widths.items():
-        lines.append(f"    check_register({name!r}, {name}, {width})")
+    seen: set[str] = set()
+    for binding in registers.bindings:
+        if binding.width is None:
+            continue
+        names = [binding.external_name, binding.internal_name]
+        if binding.scalar_alias:
+            names.append(binding.family)
+        for name in names:
+            if name in seen:
+                continue
+            seen.add(name)
+            signed = "True" if binding.signed else "False"
+            lines.append(f"    check_register({name!r}, {name}, {binding.width}, signed={signed})")
     return lines
 
 
@@ -108,12 +131,16 @@ def _emit_cmd_call(ins: UserCmdCall, command_defs: dict[str, CommandDef], regist
 
 
 def _emit_no_arg_system_cmd(ins: SystemCmd,
-                            timing_names: tuple[str, ...]) -> str | None:
+                            timing_names: tuple[str, ...],
+                            functions: frozenset[str] = frozenset()) -> str | None:
+    if ins.name == "POP" and "DEQUE" not in functions:
+        raise ValueError("POP requires FUNCTION { DEQUE } before BEGIN")
     emitters = {
         "CPA": "finish_vector_row(); scheduler.flush_all(); compare_result = ate_obj.compare_all()",
         "CPL": "finish_vector_row(); scheduler.flush_all(); compare_result = ate_obj.compare_last()",
         "CCR": "ate_obj.clear_compare_results()",
         "ALERT": "scheduler.alert(row_timing_name)",
+        "POP": "deque_pop()",
     }
     if ins.name in emitters:
         return emitters[ins.name]
@@ -123,12 +150,13 @@ def _emit_no_arg_system_cmd(ins: SystemCmd,
 
 
 def _emit_system_cmd(ins: SystemCmd,
-                     timing_names: tuple[str, ...]) -> tuple[str, bool, bool]:
+                     timing_names: tuple[str, ...],
+                     functions: frozenset[str] = frozenset()) -> tuple[str, bool, bool]:
     """Return emitted source, whether it is a compare op, and whether it clears compares."""
     if ins.args:
         return f"# TODO unsupported SYSTEM CMD args: {ins.name} {ins.args}", False, False
 
-    emitted = _emit_no_arg_system_cmd(ins, timing_names)
+    emitted = _emit_no_arg_system_cmd(ins, timing_names, functions)
     if emitted is None:
         return f"# TODO unsupported SYSTEM CMD: {ins.name}", False, False
 
@@ -139,25 +167,10 @@ def get_label_dict(ir_list: list):
     label_dict = {}
     for index, ins in enumerate(ir_list):
         if isinstance(ins, CTRL) and not isinstance(ins, NO_CTRL):
-            if ins.label != "NO_LABEL":
-                label_dict[ins.label] = index
+            label = ins.label
+            if label is not None and label != "NO_LABEL":
+                label_dict[label] = index
     return label_dict
-
-
-def find_duplicate_labels(label_dict_list: list[dict[str, int]]) -> list[str]:
-    seen: set[str] = set()
-    duplicates: list[str] = []
-    duplicate_set: set[str] = set()
-
-    for label_dict in label_dict_list:
-        for label in label_dict:
-            if label in seen:
-                if label not in duplicate_set:
-                    duplicates.append(label)
-                    duplicate_set.add(label)
-                continue
-            seen.add(label)
-    return duplicates
 
 
 def find_duplicate_labels_in_ir(ir_list: list) -> list[str]:
@@ -165,27 +178,19 @@ def find_duplicate_labels_in_ir(ir_list: list) -> list[str]:
     duplicates: list[str] = []
     duplicate_set: set[str] = set()
     for ins in ir_list:
-        if isinstance(ins, CTRL) and not isinstance(ins, NO_CTRL) and ins.label != "NO_LABEL":
-            if ins.label in seen and ins.label not in duplicate_set:
-                duplicates.append(ins.label)
-                duplicate_set.add(ins.label)
-            seen.add(ins.label)
+        if isinstance(ins, CTRL) and not isinstance(ins, NO_CTRL):
+            label = ins.label
+            if label is not None and label != "NO_LABEL":
+                if label in seen and label not in duplicate_set:
+                    duplicates.append(label)
+                    duplicate_set.add(label)
+                seen.add(label)
     return duplicates
 
 
-def split_ir_list(ir_list: list):
-    pointer = 0
-    pointer_list = [0]
-    spliting_ir_list = []
-    for ins in ir_list:
-        pointer += 1
-        if isinstance(ins, RTN):
-            pointer_list.append(pointer + 11)
-    for i in range(len(pointer_list) - 1):
-        spliting_ir_list.append(ir_list[pointer_list[i]:pointer_list[i + 1]])
-    if not spliting_ir_list:
+def validate_has_rtn(ir_list: list) -> None:
+    if not any(isinstance(ins, RTN) for ins in ir_list):
         raise RtnError("No RTN block in Pattern.")
-    return spliting_ir_list
 
 
 def emit_python(testflow_list: list[Row],
@@ -195,7 +200,8 @@ def emit_python(testflow_list: list[Row],
                 func_name: str = "run",
                 schema_module_name: str | None = None,
                 timing_names: tuple[str, ...] = (),
-                registers: RegisterSet | None = None) -> None:
+                registers: RegisterSet | None = None,
+                functions: frozenset[str] = frozenset()) -> None:
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     defs = _command_map(command_defs)
@@ -210,29 +216,55 @@ def emit_python(testflow_list: list[Row],
     lines.append(
         f"from Python.pat.generated.schema.{schema_module_name} import build_commands, build_socket, build_timings"
     )
-    lines.append("from Python.pat.runtime import PatternScheduler, apply_timing_updates")
+    lines.append("from Python.pat.runtime import PatternScheduler, validate_timings")
     lines.append("")
 
     registers = registers or RegisterSet.legacy()
+    _validate_reserved_runtime_names(registers)
     defaults = _register_signature(registers)
+    signature_parts = ["ate_obj: ate.ATE", "TESTFLOW=1"]
     if defaults:
-        lines.append(f"def {func_name}(ate_obj: ate.ATE, TESTFLOW=1, {defaults}, timing_updates=None):")
-    else:
-        lines.append(f"def {func_name}(ate_obj: ate.ATE, TESTFLOW=1, timing_updates=None):")
-    lines.append("    T = 1")
-    lines.append("    F = 0")
-    lines.append("    def check_register(name, value, width):")
-    lines.append("        if value < 0 or value >= (1 << width):")
-    lines.append("            raise ValueError(f'register {name}={value} overflows {width} bits')")
-    lines.append("    def invert_register(name, value, width):")
-    lines.append("        check_register(name, value, width)")
-    lines.append("        return ((1 << width) - 1) ^ value")
+        signature_parts.append(defaults)
+    if "DEQUE" in functions:
+        signature_parts.append("DEQUE=None")
+    signature_parts.extend(["timings=None", "commands=None"])
+    lines.append(f"def {func_name}({', '.join(signature_parts)}):")
+    lines.append("    def check_register(name, value, width, signed=False):")
+    lines.append("        if signed:")
+    lines.append("            min_value = -(1 << (width - 1))")
+    lines.append("            max_value = (1 << (width - 1)) - 1")
+    lines.append("        else:")
+    lines.append("            min_value = 0")
+    lines.append("            max_value = (1 << width) - 1")
+    lines.append("        if value < min_value or value > max_value:")
+    lines.append("            kind = 'signed' if signed else 'unsigned'")
+    lines.append("            raise ValueError(f'register {name}={value} overflows {kind} {width} bits')")
+    lines.append("    def invert_register(name, value, width, signed=False):")
+    lines.append("        check_register(name, value, width, signed=signed)")
+    lines.append("        mask = (1 << width) - 1")
+    lines.append("        return mask ^ (value & mask)")
+    if "DEQUE" in functions:
+        lines.append("    deque_values = None if DEQUE is None else list(DEQUE)")
+        lines.append("    deque_index = 0")
+        lines.append("    def deque_peek():")
+        lines.append("        if deque_values is None:")
+        lines.append("            raise RuntimeError('pattern uses DEQUE, but no DEQUE data was passed to run()')")
+        lines.append("        if deque_index >= len(deque_values):")
+        lines.append("            raise RuntimeError(f'DEQUE exhausted at index {deque_index}')")
+        lines.append("        return deque_values[deque_index]")
+        lines.append("    def deque_pop():")
+        lines.append("        nonlocal deque_index")
+        lines.append("        if deque_values is None:")
+        lines.append("            raise RuntimeError('pattern uses POP, but no DEQUE data was passed to run()')")
+        lines.append("        if deque_index >= len(deque_values):")
+        lines.append("            raise RuntimeError(f'DEQUE exhausted before POP at index {deque_index}')")
+        lines.append("        deque_index += 1")
     lines.extend(_register_init_lines(registers))
     lines.extend(_register_check_lines(registers))
     lines.append("    socket = build_socket()")
-    lines.append("    commands = build_commands()")
-    lines.append("    timings = build_timings()")
-    lines.append("    apply_timing_updates(timings, timing_updates)")
+    lines.append("    commands = build_commands() if commands is None else commands")
+    lines.append("    timings = build_timings() if timings is None else timings")
+    lines.append("    validate_timings(timings)")
     lines.append("    socket.configure(ate_obj)")
     lines.append("    scheduler = PatternScheduler(ate_obj, socket, commands, timings)")
     lines.append("    row_timing_name = 'TS0'")
@@ -252,7 +284,7 @@ def emit_python(testflow_list: list[Row],
     lines.append("        scheduler.idle_rows(rows)")
     lines.append("        finish_vector_row()")
 
-    split_ir_list(ir_list)
+    validate_has_rtn(ir_list)
     label_dict = get_label_dict(ir_list)
     duplicate_labels = find_duplicate_labels_in_ir(ir_list)
     if duplicate_labels != []:
@@ -266,16 +298,19 @@ def emit_python(testflow_list: list[Row],
         for testflow_label in testflow.cmd2.split(','):
             if testflow_label not in label_dict:
                 raise UnknownTestflowLabelError(f"{testflow_label} cannot be found in testflow")
-            trans_line(label_dict[testflow_label],
-                       lines=lines,
-                       ir_list=ir_list,
-                       label_dict=label_dict,
-                       defs=defs,
-                       registers=registers,
-                       timing_names=timing_names,
-                       register_widths=registers.widths,
-                       stop_pc=None,
-                       indent_extra="")
+            testflow_returns = trans_line(label_dict[testflow_label],
+                                          lines=lines,
+                                          ir_list=ir_list,
+                                          label_dict=label_dict,
+                                          defs=defs,
+                                          registers=registers,
+                                          timing_names=timing_names,
+                                          register_widths=registers.widths,
+                                          functions=functions,
+                                          stop_pc=None,
+                                          indent_extra="")
+            if testflow_returns:
+                break
         testflow_num.append(testflow.reg)
 
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -296,8 +331,9 @@ def trans_line(pc_init: int,
                registers: RegisterSet,
                timing_names: tuple[str, ...] = (),
                register_widths: dict[str, int] | None = None,
+               functions: frozenset[str] = frozenset(),
                stop_pc: int | None = None,
-               indent_extra: str = ""):
+               indent_extra: str = "") -> bool:
     pc = pc_init
     ir_list_len = len(ir_list)
     cmd_count = 0
@@ -312,6 +348,7 @@ def trans_line(pc_init: int,
     pending_idle_count = 0
     indent = '        '
     register_widths = register_widths or {}
+    register_signed = registers.signed_names
 
     def flush_idle() -> None:
         nonlocal pending_idle_count
@@ -339,7 +376,7 @@ def trans_line(pc_init: int,
 
         elif isinstance(ins, SystemCmd):
             flush_idle()
-            emitted, is_compare, clears_compare = _emit_system_cmd(ins, timing_names)
+            emitted, is_compare, clears_compare = _emit_system_cmd(ins, timing_names, functions)
             if is_compare:
                 compare_count += 1
             if clears_compare:
@@ -354,8 +391,9 @@ def trans_line(pc_init: int,
             flush_idle()
             lines.append(f"{indent_extra}{indent}{ins.name} = {ins.value}")
             if ins.name in register_widths:
+                signed = "True" if register_signed.get(ins.name, False) else "False"
                 lines.append(
-                    f"{indent_extra}{indent}check_register({ins.name!r}, {ins.name}, {register_widths[ins.name]})"
+                    f"{indent_extra}{indent}check_register({ins.name!r}, {ins.name}, {register_widths[ins.name]}, signed={signed})"
                 )
 
         elif isinstance(ins, NO_CTRL):
@@ -377,21 +415,25 @@ def trans_line(pc_init: int,
                     target_pc = label_dict[goto_target]
                     recursive_stop_pc = goto_start_pc if target_pc < goto_start_pc else None
                     lines.append(f"{indent_extra}        for _goto_i in range({goto_times}):")
-                    trans_line(target_pc,
-                               lines=lines,
-                               ir_list=ir_list,
-                               label_dict=label_dict,
-                               defs=defs,
-                               registers=registers,
-                               timing_names=timing_names,
-                               register_widths=register_widths,
-                               stop_pc=recursive_stop_pc,
-                               indent_extra=indent_extra + "    ")
-                    for tail_line in tail_lines:
-                        if tail_line.startswith(indent_extra):
-                            lines.append(f"{indent_extra}    {tail_line[len(indent_extra):]}")
-                        else:
-                            lines.append(f"{indent_extra}    {tail_line}")
+                    recursive_returns = trans_line(target_pc,
+                                                   lines=lines,
+                                                   ir_list=ir_list,
+                                                   label_dict=label_dict,
+                                                   defs=defs,
+                                                   registers=registers,
+                                                   timing_names=timing_names,
+                                                   register_widths=register_widths,
+                                                   functions=functions,
+                                                   stop_pc=recursive_stop_pc,
+                                                   indent_extra=indent_extra + "    ")
+                    if not recursive_returns:
+                        for tail_line in tail_lines:
+                            if tail_line.startswith(indent_extra):
+                                lines.append(f"{indent_extra}    {tail_line[len(indent_extra):]}")
+                            else:
+                                lines.append(f"{indent_extra}    {tail_line}")
+                    else:
+                        return True
                 goto_count -= 1
 
             if rtn_count > 1:
@@ -448,3 +490,6 @@ def trans_line(pc_init: int,
 
     if compare_count != 0:
         lines.append(f"{indent_extra}        return compare_result")
+        return True
+
+    return False

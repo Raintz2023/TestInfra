@@ -1,24 +1,64 @@
 ?start: timing_block
 
 timing_block: "TIMING" timing_set+ "END"
+            | "TIMING" "{" timing_set+ "}"
 
-timing_set: NAME "{" timing_field ("," timing_field)* "}"
+timing_set: NAME "{" timing_item (","? timing_item)* ","? "}"
 
-timing_field: "PRD" ":" INT       -> period_spec
-            | "NRZ" ":" INT       -> nrz_spec
-            | "NRZ_BASE" ":" INT  -> nrz_base_spec
-            | "RZ" ":" INT        -> rz_spec
-            | "RZ_RETURN" ":" INT -> rz_return_spec
-            | "RZ_BASE" ":" INT   -> rz_base_spec
-            | "RZZ_RISE" ":" INT  -> rzz_rise_spec
-            | "RZZ_FALL" ":" INT  -> rzz_fall_spec
-            | "RZZ_BASE" ":" INT  -> rzz_base_spec
-            | "STB" ":" INT       -> stb_spec
-            | "STB_BASE" ":" INT  -> stb_base_spec
+?timing_item: "PRD" ":" UINT     -> period_spec
+            | nrz_block
+            | rz_block
+            | rzz_block
+            | stb_block
+
+nrz_block: "NRZ" "{" nrz_content "}"
+rz_block: "RZ" "{" rz_content "}"
+rzz_block: "RZZ" "{" rzz_content "}"
+stb_block: "STB" "{" stb_content "}"
+
+?nrz_content: single_edge_field_list
+            | nrz_variant_list
+?stb_content: single_edge_field_list
+            | stb_variant_list
+?rz_content: two_edge_field_list
+           | rz_variant_list
+?rzz_content: two_edge_field_list
+            | rzz_variant_list
+
+single_edge_field_list: nrz_field ("," nrz_field)* ","?
+two_edge_field_list: rz_field ("," rz_field)* ","?
+
+nrz_variant_list: single_edge_variant (","? single_edge_variant)* ","?
+stb_variant_list: single_edge_variant (","? single_edge_variant)* ","?
+rz_variant_list: two_edge_variant (","? two_edge_variant)* ","?
+rzz_variant_list: two_edge_variant (","? two_edge_variant)* ","?
+
+single_edge_variant: VARIANT_NAME "{" single_edge_field_list "}"
+two_edge_variant: VARIANT_NAME "{" two_edge_field_list "}"
+
+?nrz_field: "EDGE" ":" UINT      -> edge_spec
+          | "BASE" ":" SINT      -> base_spec
+          | "OPEN" ":" UINT      -> open_spec
+
+?rz_field: "EDGE_1" ":" UINT     -> edge_1_spec
+         | "EDGE_2" ":" UINT     -> edge_2_spec
+         | "BASE" ":" SINT       -> base_spec
+         | "OPEN" ":" UINT       -> open_spec
+
+?rzz_field: "EDGE_1" ":" UINT    -> edge_1_spec
+          | "EDGE_2" ":" UINT    -> edge_2_spec
+          | "BASE" ":" SINT      -> base_spec
+          | "OPEN" ":" UINT      -> open_spec
+
+?stb_field: "EDGE" ":" UINT      -> edge_spec
+          | "BASE" ":" SINT      -> base_spec
+          | "OPEN" ":" UINT      -> open_spec
 
 NAME: /[A-Z][A-Z0-9_]*/
+VARIANT_NAME: /@[A-Za-z_][A-Za-z0-9_]*/
+UINT: /[0-9]+/
+SINT: /-?[0-9]+/
 
-%import common.INT
 %import common.WS
 %ignore WS
 %ignore /\/\/[^\n]*/

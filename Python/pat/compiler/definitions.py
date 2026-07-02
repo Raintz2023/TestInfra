@@ -10,23 +10,33 @@ class PinDef:
     lsb: int
     width: int
     waveform: str
+    timing_variant: str
     default_value: int
+
+
+@dataclass(frozen=True)
+class SingleEdgeTimingDef:
+    edge: int
+    base: int = 0
+    open: int = 1
+
+
+@dataclass(frozen=True)
+class TwoEdgeTimingDef:
+    edge_1: int
+    edge_2: int
+    base: int = 0
+    open: int = 1
 
 
 @dataclass(frozen=True)
 class TimingDef:
     name: str
-    period_phases: int = 10
-    nrz_rise_phase: int = 1
-    nrz_base_phase: int = 0
-    rz_rise_phase: int = 1
-    rz_return_phase: int = 3
-    rz_base_phase: int = 0
-    rzz_rise_phase: int = 2
-    rzz_fall_phase: int = 7
-    rzz_base_phase: int = 0
-    sample_phase: int = 8
-    sample_base_phase: int = 0
+    prd: int
+    nrz: dict[str, SingleEdgeTimingDef]
+    rz: dict[str, TwoEdgeTimingDef]
+    rzz: dict[str, TwoEdgeTimingDef]
+    stb: dict[str, SingleEdgeTimingDef]
 
 
 @dataclass(frozen=True)
@@ -34,6 +44,7 @@ class CommandActionDef:
     kind: str
     pin_name: str
     param_name: str | None = None
+    literal_value: int | None = None
     pin_delay_enabled: bool = False
 
 

@@ -1,6 +1,43 @@
-TIMING
-    // Starter timing set. Tune the phases for the DUT before real runs.
-    TS0 { PRD: 20, NRZ: 1, NRZ_BASE: 0, RZ: 8, RZ_RETURN: 10, RZ_BASE: 0, RZZ_RISE: 9, RZZ_FALL: 19, RZZ_BASE: 0, STB: 14, STB_BASE: 0 }
-    TS1 { PRD: 20, NRZ: 1, NRZ_BASE: 0, RZ: 8, RZ_RETURN: 10, RZ_BASE: 0, RZZ_RISE: 9, RZZ_FALL: 19, RZZ_BASE: 0, STB: 14, STB_BASE: 0 }
-    TS2 { PRD: 20, NRZ: 1, NRZ_BASE: 0, RZ: 8, RZ_RETURN: 10, RZ_BASE: 0, RZZ_RISE: 9, RZZ_FALL: 19, RZZ_BASE: 0, STB: 14, STB_BASE: 0 }
-END
+TIMING {
+    TS0 {
+        PRD: 20
+        NRZ {
+            @default { EDGE: 1, BASE: 0 }
+        }
+        RZ  { EDGE_1: 8, EDGE_2: 10, BASE: 0 }
+        RZZ { EDGE_1: 9, EDGE_2: 19, BASE: 0 }
+        STB {
+            @default { EDGE: 14, BASE: 0 }
+        }
+    }
+    TS1 {
+        PRD: 20
+        NRZ {
+            @default { EDGE: 1, BASE: 0 }
+            @DQS     { EDGE: 1, BASE: 0, OPEN: 1 }
+            @DQ      { EDGE: 1, BASE: 0, OPEN: 1 }
+        }
+        RZ  { EDGE_1: 8, EDGE_2: 10, BASE: 0 }
+        RZZ { EDGE_1: 9, EDGE_2: 19, BASE: 0 }
+        STB {
+            @default { EDGE: 14, BASE: 0 }
+            @DQS     { EDGE: 14, BASE: 0, OPEN: 1 }
+            @DQ      { EDGE: 14, BASE: 0, OPEN: 1 }
+        }
+    }
+    TS2 {
+        PRD: 20
+        NRZ {
+            @default { EDGE: 1, BASE: 0 }
+            @DQS     { EDGE: 1, BASE: 0, OPEN: 1 }
+            @DQ      { EDGE: 1, BASE: 0, OPEN: 1 }
+        }
+        RZ  { EDGE_1: 8, EDGE_2: 10, BASE: 0 }
+        RZZ { EDGE_1: 9, EDGE_2: 19, BASE: 0 }
+        STB {
+            @default { EDGE: 14, BASE: 0 }
+            @DQS     { EDGE: 14, BASE: 0, OPEN: 1 }
+            @DQ      { EDGE: 14, BASE: 0, OPEN: 1 }
+        }
+    }
+}

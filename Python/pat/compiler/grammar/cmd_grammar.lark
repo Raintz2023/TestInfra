@@ -6,7 +6,7 @@ user_cmd: USER_NAME "<" cmd_args?         -> user_cmd_with_args
 
 builtin_cmd: SYSTEM_NAME system_cmd_args? -> system_cmd_call
 
-SYSTEM_NAME: "CPA" | "CPL" | "CCR" | "ALERT" | /TS[A-Z0-9_]*/
+SYSTEM_NAME: "CPA" | "CPL" | "CCR" | "ALERT" | "POP" | /TS[A-Z0-9_]*/
 USER_NAME: /[A-Z][A-Z0-9_]*/
 
 ?cmd_args: expr ("," expr)*

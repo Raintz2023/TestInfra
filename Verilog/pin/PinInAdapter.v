@@ -4,22 +4,22 @@ module PinInAdapter(
     input  wire [23:0] PIN_IN,
     output wire CLK,
     output wire RST_N,
-    output wire DQ_RX_START,
     output wire R,
     output wire W,
     output wire [7:0] ADDR,
     output wire DQ_RX_BIT,
+    output wire DQS_RX_BIT,
     output wire [7:0] MR_IN,
     output wire MRW,
     output wire MRR
 );
     assign CLK          = PIN_IN[0];
     assign RST_N        = PIN_IN[1];
-    assign DQ_RX_START  = PIN_IN[2];
-    assign R            = PIN_IN[3];
-    assign W            = PIN_IN[4];
-    assign ADDR         = PIN_IN[12:5];
-    assign DQ_RX_BIT    = PIN_IN[13];
+    assign R            = PIN_IN[2];
+    assign W            = PIN_IN[3];
+    assign ADDR         = PIN_IN[11:4];
+    assign DQ_RX_BIT    = PIN_IN[12];
+    assign DQS_RX_BIT   = PIN_IN[13];
     assign MR_IN        = PIN_IN[21:14];
     assign MRW          = PIN_IN[22];
     assign MRR          = PIN_IN[23];

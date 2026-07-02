@@ -1,11 +1,31 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from enum import Enum
+
+
+class RegisterRole(str, Enum):
+    LOOP = "LOOP"
+    ARG = "ARG"
+    DELAY = "DELAY"
+    EXPECT = "EXPECT"
 
 
 ALLOWED_REGISTER_FAMILIES = {"LOOP", "ADDR", "X", "Y", "Z", "TEMP", "DELAY", "DATA"}
+REGISTER_FAMILY_ROLES = {
+    "LOOP": RegisterRole.LOOP,
+    "ADDR": RegisterRole.ARG,
+    "X": RegisterRole.ARG,
+    "Y": RegisterRole.ARG,
+    "Z": RegisterRole.ARG,
+    "TEMP": RegisterRole.ARG,
+    "DELAY": RegisterRole.DELAY,
+    "DATA": RegisterRole.EXPECT,
+}
+SIGNED_REGISTER_FAMILIES = {"X", "Y", "TEMP"}
 _IDENT_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+_INDEXED_NAME_RE = re.compile(r"^([A-Z][A-Z0-9]*)_([0-9]+)$")
 
 
 @dataclass(frozen=True)
@@ -16,6 +36,8 @@ class RegisterBinding:
     width: int | None = None
     index: int | None = None
     scalar_alias: bool = False
+    role: RegisterRole = RegisterRole.ARG
+    signed: bool = False
 
 
 @dataclass(frozen=True)
@@ -55,6 +77,26 @@ class RegisterSet:
         return widths
 
     @property
+    def signed_names(self) -> dict[str, bool]:
+        signed: dict[str, bool] = {}
+        for binding in self.bindings:
+            for name in (binding.internal_name, binding.external_name):
+                signed[name] = binding.signed
+            if binding.scalar_alias:
+                signed[binding.family] = binding.signed
+        return signed
+
+    @property
+    def roles_by_name(self) -> dict[str, RegisterRole]:
+        roles: dict[str, RegisterRole] = {}
+        for binding in self.bindings:
+            for name in (binding.internal_name, binding.external_name):
+                roles[name] = binding.role
+            if binding.scalar_alias:
+                roles[binding.family] = binding.role
+        return roles
+
+    @property
     def families_by_name(self) -> dict[str, str]:
         families: dict[str, str] = {}
         for binding in self.bindings:
@@ -64,13 +106,53 @@ class RegisterSet:
                 families[binding.family] = binding.family
         return families
 
+    def canonical_name(self, name: str) -> str:
+        for binding in self.bindings:
+            if name == binding.internal_name or name == binding.external_name:
+                return binding.internal_name
+            if binding.scalar_alias and name == binding.family:
+                return binding.internal_name
+        indexed = _INDEXED_NAME_RE.fullmatch(name)
+        if indexed is not None and indexed.group(2) == "1":
+            family = indexed.group(1)
+            if family in self.local_names:
+                return self.canonical_name(family)
+        return name
+
+    def undeclared_name_error(self, name: str) -> str:
+        indexed = _INDEXED_NAME_RE.fullmatch(name)
+        if indexed is not None:
+            family = indexed.group(1)
+            if family in ALLOWED_REGISTER_FAMILIES:
+                if indexed.group(2) == "1" and family in self.local_names:
+                    return f"{name} should have been normalized to scalar REGISTER {family}."
+                return (
+                    f"{name} is not declared in REGISTER block. "
+                    f"Declare {family}[0-n] before using indexed register {name}."
+                )
+        allowed = ", ".join(sorted(self.local_names))
+        return f"{name} is not declared in REGISTER block; allowed: {allowed}"
+
     @staticmethod
     def legacy() -> "RegisterSet":
         names = ("X", "Y", "Z", "ADDR", "VAL", "TEMP", "DATA", "DELAY")
-        return RegisterSet(
-            tuple(RegisterBinding(name, name, name) for name in names),
-            explicit=False,
-        )
+        bindings = []
+        for name in names:
+            role = REGISTER_FAMILY_ROLES.get(name, RegisterRole.ARG)
+            bindings.append(
+                RegisterBinding(
+                    name,
+                    name,
+                    name,
+                    role=role,
+                    signed=name in SIGNED_REGISTER_FAMILIES,
+                )
+            )
+        return RegisterSet(tuple(bindings), explicit=False)
+
+
+def _strip_comment(line: str) -> str:
+    return line.split("//", 1)[0].strip()
 
 
 def _split_top_level_commas(text: str) -> list[str]:
@@ -98,14 +180,15 @@ def _split_top_level_commas(text: str) -> list[str]:
 
 
 def _parse_range(range_text: str) -> list[int]:
+    separator = "-" if "-" in range_text else ":"
     try:
-        start_text, end_text = [part.strip() for part in range_text.split(":", 1)]
+        start_text, end_text = [part.strip() for part in range_text.split(separator, 1)]
         start = int(start_text)
         end = int(end_text)
     except ValueError as exc:
         raise ValueError(f"Invalid REGISTER range [{range_text}]") from exc
     if start < 0 or end < start or end > 9:
-        raise ValueError(f"REGISTER range must be within [0:9], got [{range_text}]")
+        raise ValueError(f"REGISTER range must be within [0-9], got [{range_text}]")
     return list(range(start, end + 1))
 
 
@@ -124,18 +207,91 @@ def _split_width_prefix(text: str) -> tuple[int | None, str]:
     return width, match.group(2).strip()
 
 
-def parse_register_block(text: str | None) -> RegisterSet:
-    if text is None or not text.strip():
-        return RegisterSet.legacy()
+def _family_role(family: str) -> RegisterRole:
+    try:
+        return REGISTER_FAMILY_ROLES[family]
+    except KeyError as exc:
+        allowed = ", ".join(sorted(ALLOWED_REGISTER_FAMILIES))
+        raise ValueError(f"Unsupported REGISTER family {family}; allowed: {allowed}") from exc
 
+
+def _family_signed(family: str) -> bool:
+    return family in SIGNED_REGISTER_FAMILIES
+
+
+def _parse_decl_left(text: str) -> tuple[str, list[int], int | None]:
+    width, left = _split_width_prefix(text)
+    range_match = re.fullmatch(r"([A-Z][A-Z0-9_]*)\s*\[\s*([0-9]+\s*[:-]\s*[0-9]+)\s*\]", left)
+    if range_match is not None:
+        family = range_match.group(1)
+        indices = _parse_range(range_match.group(2))
+    else:
+        family = left
+        indices = []
+
+    _validate_name(family, "register family")
+    _family_role(family)
+    return family, indices, width
+
+
+def _make_bindings_for_decl(family: str,
+                            indices: list[int],
+                            width: int | None,
+                            aliases: list[str] | None = None,
+                            legacy_one_based: bool = False) -> list[RegisterBinding]:
+    role = _family_role(family)
+    signed = _family_signed(family)
+    if not indices:
+        if aliases is not None:
+            raise ValueError(f"Scalar REGISTER {family} cannot have aliases")
+        return [
+            RegisterBinding(
+                family,
+                family,
+                family,
+                width=width,
+                role=role,
+                signed=signed,
+            )
+        ]
+
+    if aliases is not None and len(aliases) != len(indices):
+        raise ValueError(
+            f"REGISTER {family}[{indices[0]}-{indices[-1]}] has {len(indices)} entries "
+            f"but {len(aliases)} aliases"
+        )
+
+    bindings = []
+    for pos, index in enumerate(indices):
+        if aliases is None:
+            internal_index = pos + 1 if legacy_one_based else index
+            name = f"{family}_{internal_index}"
+            internal_name = name
+            external_name = name
+        else:
+            internal_name = f"{family}_{index}"
+            external_name = aliases[pos]
+            _validate_name(external_name, "register alias")
+        bindings.append(
+            RegisterBinding(
+                family=family,
+                internal_name=internal_name,
+                external_name=external_name,
+                width=width,
+                index=index,
+                scalar_alias=(pos == 0),
+                role=role,
+                signed=signed,
+            )
+        )
+    return bindings
+
+
+def _parse_legacy_register_block(text: str) -> RegisterSet:
     bindings: list[RegisterBinding] = []
-    seen_external: set[str] = set()
-    seen_internal: set[str] = set()
-
     for item in _split_top_level_commas(text):
         left, sep, right = item.partition("=")
         left = left.strip()
-        width, left = _split_width_prefix(left)
         aliases: list[str] | None = None
         if sep:
             right = right.strip()
@@ -143,53 +299,78 @@ def parse_register_block(text: str | None) -> RegisterSet:
                 raise ValueError(f"REGISTER aliases must be written as [A, B], got {right}")
             aliases = [alias.strip() for alias in _split_top_level_commas(right[1:-1])]
 
-        range_match = re.fullmatch(r"([A-Z][A-Z0-9_]*)\s*\[\s*([0-9]+\s*:\s*[0-9]+)\s*\]", left)
-        if range_match is not None:
-            family = range_match.group(1)
-            indices = _parse_range(range_match.group(2))
-        else:
-            family = left
-            indices = []
+        family, indices, width = _parse_decl_left(left)
+        bindings.extend(
+            _make_bindings_for_decl(
+                family,
+                indices,
+                width,
+                aliases=aliases,
+                legacy_one_based=(aliases is None),
+            )
+        )
+    return _finalize_bindings(bindings)
 
-        _validate_name(family, "register family")
-        if family not in ALLOWED_REGISTER_FAMILIES:
-            allowed = ", ".join(sorted(ALLOWED_REGISTER_FAMILIES))
-            raise ValueError(f"Unsupported REGISTER family {family}; allowed: {allowed}")
 
-        if not indices:
-            if aliases is not None:
-                raise ValueError(f"Scalar REGISTER {family} cannot have aliases")
-            bindings.append(RegisterBinding(family, family, family, width=width))
+def _section_body(text: str, section: str) -> str | None:
+    match = re.search(rf"\b{section}\s*\{{(.*?)\}}", text, flags=re.S)
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def _parse_define_lines(body: str) -> list[RegisterBinding]:
+    bindings: list[RegisterBinding] = []
+    for line in body.splitlines():
+        raw = _strip_comment(line).rstrip(",").strip()
+        if not raw:
             continue
+        family, indices, width = _parse_decl_left(raw)
+        bindings.extend(_make_bindings_for_decl(family, indices, width))
+    return bindings
 
-        if aliases is not None and len(aliases) != len(indices):
-            raise ValueError(
-                f"REGISTER {family}[{indices[0]}:{indices[-1]}] has {len(indices)} entries "
-                f"but {len(aliases)} aliases"
-            )
 
-        for pos, index in enumerate(indices):
-            if aliases is None:
-                # User-facing indexed registers are one-based when no alias is provided:
-                # ADDR[0:1] -> ADDR_1, ADDR_2.
-                name = f"{family}_{pos + 1}"
-                internal_name = name
-                external_name = name
-            else:
-                internal_name = f"{family}_{index}"
-                external_name = aliases[pos]
-                _validate_name(external_name, "register alias")
-            bindings.append(
-                RegisterBinding(
-                    family=family,
-                    internal_name=internal_name,
-                    external_name=external_name,
-                    width=width,
-                    index=index,
-                    scalar_alias=(pos == 0),
-                )
-            )
+def _parse_alias_lines(body: str) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for line in body.splitlines():
+        raw = _strip_comment(line).strip()
+        if not raw:
+            continue
+        left, sep, right = raw.partition("=")
+        if not sep:
+            raise ValueError(f"REGISTER ALIAS line must use '=', got: {raw}")
+        internal = left.strip()
+        external = right.strip()
+        _validate_name(internal, "register alias source")
+        _validate_name(external, "register alias")
+        aliases[internal] = external
+    return aliases
 
+
+def _apply_aliases(bindings: list[RegisterBinding], aliases: dict[str, str]) -> list[RegisterBinding]:
+    by_internal = {binding.internal_name: binding for binding in bindings}
+    updated: list[RegisterBinding] = []
+    for source in aliases:
+        if source not in by_internal:
+            raise ValueError(f"REGISTER alias source is not declared: {source}")
+    for binding in bindings:
+        external = aliases.get(binding.internal_name, binding.external_name)
+        updated.append(replace(binding, external_name=external))
+    return updated
+
+
+def _parse_block_register_block(text: str) -> RegisterSet:
+    define = _section_body(text, "DEFINE")
+    if define is None:
+        raise ValueError("REGISTER block must contain DEFINE { ... }")
+    aliases = _parse_alias_lines(_section_body(text, "ALIAS") or "")
+    bindings = _apply_aliases(_parse_define_lines(define), aliases)
+    return _finalize_bindings(bindings)
+
+
+def _finalize_bindings(bindings: list[RegisterBinding]) -> RegisterSet:
+    seen_external: set[str] = set()
+    seen_internal: set[str] = set()
     for binding in bindings:
         if binding.external_name in seen_external:
             raise ValueError(f"Duplicate external REGISTER name: {binding.external_name}")
@@ -197,5 +378,12 @@ def parse_register_block(text: str | None) -> RegisterSet:
             raise ValueError(f"Duplicate internal REGISTER name: {binding.internal_name}")
         seen_external.add(binding.external_name)
         seen_internal.add(binding.internal_name)
-
     return RegisterSet(tuple(bindings), explicit=True)
+
+
+def parse_register_block(text: str | None) -> RegisterSet:
+    if text is None or not text.strip():
+        return RegisterSet.legacy()
+    if re.search(r"\bDEFINE\s*\{", text):
+        return _parse_block_register_block(text)
+    return _parse_legacy_register_block(text)

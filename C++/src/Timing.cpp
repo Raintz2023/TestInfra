@@ -3,34 +3,31 @@
 #include <stdexcept>
 
 void validate_timing_set(const TimingSet& timing) {
-    if (timing.period_phases == 0) {
-        throw std::invalid_argument("timing period_phases must be positive");
+    if (timing.prd == 0) {
+        throw std::invalid_argument("timing prd must be positive");
     }
-    if (timing.nrz_rise_phase >= timing.period_phases) {
-        throw std::out_of_range("timing nrz_rise_phase out of period range");
+    if (timing.nrz.edge >= timing.prd) {
+        throw std::out_of_range("timing nrz.edge out of period range");
     }
-    if (timing.sample_phase >= timing.period_phases) {
-        throw std::out_of_range("timing sample_phase out of period range");
+    if (timing.stb.edge >= timing.prd) {
+        throw std::out_of_range("timing stb.edge out of period range");
     }
-    if (timing.rz_rise_phase >= timing.period_phases) {
-        throw std::out_of_range("timing rz_rise_phase out of period range");
+    if (timing.rz.edge_1 >= timing.prd) {
+        throw std::out_of_range("timing rz.edge_1 out of period range");
     }
-    if (timing.rz_return_phase >= timing.period_phases) {
-        throw std::out_of_range("timing rz_return_phase out of period range");
+    if (timing.rz.edge_2 >= timing.prd) {
+        throw std::out_of_range("timing rz.edge_2 out of period range");
     }
-    if (timing.rzz_rise_phase >= timing.period_phases) {
-        throw std::out_of_range("timing rzz_rise_phase out of period range");
+    if (timing.rzz.edge_1 >= timing.prd) {
+        throw std::out_of_range("timing rzz.edge_1 out of period range");
     }
-    if (timing.rzz_fall_phase >= timing.period_phases) {
-        throw std::out_of_range("timing rzz_fall_phase out of period range");
+    if (timing.rzz.edge_2 >= timing.prd) {
+        throw std::out_of_range("timing rzz.edge_2 out of period range");
     }
-    if (timing.nrz_rise_phase >= timing.rzz_rise_phase) {
-        throw std::invalid_argument("timing nrz_rise_phase must be before rzz_rise_phase");
+    if (timing.rz.edge_1 >= timing.rz.edge_2) {
+        throw std::invalid_argument("timing rz.edge_1 must be before rz.edge_2");
     }
-    if (timing.rz_rise_phase >= timing.rz_return_phase) {
-        throw std::invalid_argument("timing rz_rise_phase must be before rz_return_phase");
-    }
-    if (timing.rzz_rise_phase >= timing.rzz_fall_phase) {
-        throw std::invalid_argument("timing rzz_rise_phase must be before rzz_fall_phase");
+    if (timing.rzz.edge_1 >= timing.rzz.edge_2) {
+        throw std::invalid_argument("timing rzz.edge_1 must be before rzz.edge_2");
     }
 }

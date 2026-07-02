@@ -15,6 +15,7 @@ _RE_VALID_NODE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')  # 你可按需放宽�
 _RE_INCLUDE_LINE = re.compile(r'^\s*INCLUDE\s+(.+?)\s*$')
 _RE_USE_LINE = re.compile(r'^\s*USE\s+(.+?)\s*$')
 _RE_REGISTER_START = re.compile(r'^\s*REGISTER\s*\{\s*(.*?)\s*$')
+_RE_FUNCTION_START = re.compile(r'^\s*FUNCTION\s*\{\s*(.*?)\s*$')
 _RE_CTRL_ONLY = re.compile(r'^(?:[A-Z][A-Z0-9_]*#\s*)?(?:NOP|RTN|FOR-[A-Z0-9_]+|GOTO-[A-Z0-9_]+\s+[A-Z][A-Z0-9_]*)$')
 
 
@@ -25,6 +26,7 @@ class RawPat:
     rows: list[Row]
     use_path: Path | None = None
     registers: RegisterSet | None = None
+    functions: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -123,7 +125,7 @@ def _expand_include_lines(pat_path: str | Path,
 
 def _load_compile_lines(pat_path: str | Path,
                         use_paths: list[str | Path] | tuple[str | Path, ...] | None = None,
-                        include_paths: list[str | Path] | tuple[str | Path, ...] | None = None) -> tuple[list[SourceLine], Path | None, str | None]:
+                        include_paths: list[str | Path] | tuple[str | Path, ...] | None = None) -> tuple[list[SourceLine], Path | None, str | None, frozenset[str]]:
     path = Path(pat_path).resolve()
     if not path.is_file():
         raise FileNotFoundError(f"Pattern file not found: {path}")
@@ -132,11 +134,68 @@ def _load_compile_lines(pat_path: str | Path,
     state = "before_begin"
     use_path: Path | None = None
     register_lines: list[str] = []
+    register_depth = 0
     seen_register = False
+    function_lines: list[str] = []
+    function_depth = 0
+    seen_function = False
+
+    def consume_register_text(text: str, source: SourceLine) -> bool:
+        nonlocal register_depth
+        segment: list[str] = []
+        for idx, ch in enumerate(text):
+            if ch == "{":
+                register_depth += 1
+                segment.append(ch)
+            elif ch == "}":
+                register_depth -= 1
+                if register_depth < 0:
+                    raise RuntimeError(f"Unexpected REGISTER close brace: {source.path}:{source.lineno}")
+                if register_depth == 0:
+                    before_close = "".join(segment).strip()
+                    if before_close:
+                        register_lines.append(before_close)
+                    if text[idx + 1:].strip():
+                        raise RuntimeError(f"Unexpected text after REGISTER block: {source.path}:{source.lineno}")
+                    return True
+                segment.append(ch)
+            else:
+                segment.append(ch)
+        raw_segment = "".join(segment).strip()
+        if raw_segment:
+            register_lines.append(raw_segment)
+        return False
+
+    def consume_function_text(text: str, source: SourceLine) -> bool:
+        nonlocal function_depth
+        segment: list[str] = []
+        for idx, ch in enumerate(text):
+            if ch == "{":
+                function_depth += 1
+                segment.append(ch)
+            elif ch == "}":
+                function_depth -= 1
+                if function_depth < 0:
+                    raise RuntimeError(f"Unexpected FUNCTION close brace: {source.path}:{source.lineno}")
+                if function_depth == 0:
+                    before_close = "".join(segment).strip()
+                    if before_close:
+                        function_lines.append(before_close)
+                    if text[idx + 1:].strip():
+                        raise RuntimeError(f"Unexpected text after FUNCTION block: {source.path}:{source.lineno}")
+                    return True
+                segment.append(ch)
+            else:
+                segment.append(ch)
+        raw_segment = "".join(segment).strip()
+        if raw_segment:
+            function_lines.append(raw_segment)
+        return False
 
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines(True)
     for lineno, line in enumerate(lines, start=1):
         raw = _strip_comment(line)
+        source_line = SourceLine(path=path, lineno=lineno, text=line)
 
         if state == "before_begin":
             if not raw:
@@ -153,33 +212,37 @@ def _load_compile_lines(pat_path: str | Path,
                     raise RuntimeError(f"Duplicate REGISTER detected: {path}:{lineno}")
                 seen_register = True
                 tail = register_match.group(1).strip()
-                if "}" in tail:
-                    before_close, after_close = tail.split("}", 1)
-                    if after_close.strip():
-                        raise RuntimeError(f"Unexpected text after REGISTER block: {path}:{lineno}")
-                    if before_close.strip():
-                        register_lines.append(before_close.strip())
+                register_depth = 1
+                if consume_register_text(tail, source_line):
+                    state = "before_begin"
                     continue
-                if tail:
-                    register_lines.append(tail)
                 state = "in_register"
                 continue
+            function_match = _RE_FUNCTION_START.match(raw)
+            if function_match is not None:
+                if seen_function:
+                    raise RuntimeError(f"Duplicate FUNCTION detected: {path}:{lineno}")
+                seen_function = True
+                tail = function_match.group(1).strip()
+                function_depth = 1
+                if consume_function_text(tail, source_line):
+                    state = "before_begin"
+                    continue
+                state = "in_function"
+                continue
             if raw != "BEGIN":
-                return [], use_path, None
+                return [], use_path, None, frozenset()
             state = "in_body"
             continue
 
         if state == "in_register":
-            if "}" in raw:
-                before_close, after_close = raw.split("}", 1)
-                if before_close.strip():
-                    register_lines.append(before_close.strip())
-                if after_close.strip():
-                    raise RuntimeError(f"Unexpected text after REGISTER block: {path}:{lineno}")
+            if consume_register_text(raw, source_line):
                 state = "before_begin"
-                continue
-            if raw:
-                register_lines.append(raw)
+            continue
+
+        if state == "in_function":
+            if consume_function_text(raw, source_line):
+                state = "before_begin"
             continue
 
         if state == "after_end":
@@ -195,6 +258,8 @@ def _load_compile_lines(pat_path: str | Path,
             raise RuntimeError(f"USE must appear before BEGIN: {path}:{lineno}")
         if _RE_REGISTER_START.match(raw) is not None:
             raise RuntimeError(f"REGISTER must appear before BEGIN: {path}:{lineno}")
+        if _RE_FUNCTION_START.match(raw) is not None:
+            raise RuntimeError(f"FUNCTION must appear before BEGIN: {path}:{lineno}")
 
         match = _RE_INCLUDE_LINE.match(raw)
         if match is None:
@@ -205,13 +270,27 @@ def _load_compile_lines(pat_path: str | Path,
         compile_lines.extend(_expand_include_lines(include_path, (path,), include_paths))
 
     if state == "before_begin":
-        return [], use_path, "\n".join(register_lines) if seen_register else None
+        return [], use_path, "\n".join(register_lines) if seen_register else None, _parse_function_block(function_lines)
     if state == "in_register":
         raise RuntimeError(f"Unclosed REGISTER block: {path}")
+    if state == "in_function":
+        raise RuntimeError(f"Unclosed FUNCTION block: {path}")
     if state != "after_end":
         raise PatternEndError(str(path))
 
-    return compile_lines, use_path, "\n".join(register_lines) if seen_register else None
+    return compile_lines, use_path, "\n".join(register_lines) if seen_register else None, _parse_function_block(function_lines)
+
+
+def _parse_function_block(lines: list[str]) -> frozenset[str]:
+    text = " ".join(lines).strip()
+    if not text:
+        return frozenset()
+    functions = frozenset(part.upper() for part in text.split())
+    supported = {"DEQUE"}
+    unknown = sorted(functions - supported)
+    if unknown:
+        raise RuntimeError(f"Unknown FUNCTION feature(s): {', '.join(unknown)}")
+    return functions
 
 def _parse_testflow(raw: str) -> Row | None:
     """
@@ -391,13 +470,14 @@ def parse_testflow_body_row(line: str) -> tuple[list[Row], bool]:
 def read_pat(pat_path: str | Path,
              use_paths: list[str | Path] | tuple[str | Path, ...] | None = None,
              include_paths: list[str | Path] | tuple[str | Path, ...] | None = None):
-    compile_lines, use_path, register_text = _load_compile_lines(pat_path, use_paths, include_paths)
+    compile_lines, use_path, register_text, functions = _load_compile_lines(pat_path, use_paths, include_paths)
     raw_pat = RawPat(
         testflows=[],
         def_lines=[],
         rows=[],
         use_path=use_path,
         registers=parse_register_block(register_text),
+        functions=functions,
     )
     in_testflow = False
     current_testflow_num: int | None = None

@@ -1,5 +1,23 @@
-TIMING
-    TS0 { PRD: 10, NRZ: 1, NRZ_BASE: 0, RZ: 1, RZ_RETURN: 3, RZ_BASE: 0, RZZ_RISE: 2, RZZ_FALL: 7,  RZZ_BASE:0, STB: 8  }
-    TS1 { PRD: 20, NRZ: 2, NRZ_BASE: 0, RZ: 2, RZ_RETURN: 6, RZ_BASE: 0, RZZ_RISE: 4, RZZ_FALL: 14, RZZ_BASE:0, STB: 16 }
-    TS2 { PRD: 20, NRZ: 2, NRZ_BASE: 0, RZ: 2, RZ_RETURN: 6, RZ_BASE: 0, RZZ_RISE: 4, RZZ_FALL: 14, RZZ_BASE:0, STB: 16 }
-END
+TIMING {
+    TS0 {
+        PRD: 10
+        NRZ { EDGE: 1, BASE: 0 }
+        RZ  { EDGE_1: 1, EDGE_2: 3, BASE: 0 }
+        RZZ { EDGE_1: 2, EDGE_2: 7, BASE: 0 }
+        STB { EDGE: 8, BASE: 0 }
+    }
+    TS1 {
+        PRD: 20
+        NRZ { EDGE: 2, BASE: 0 }
+        RZ  { EDGE_1: 2, EDGE_2: 6, BASE: 0 }
+        RZZ { EDGE_1: 4, EDGE_2: 14, BASE: 0 }
+        STB { EDGE: 16, BASE: 0 }
+    }
+    TS2 {
+        PRD: 20
+        NRZ { EDGE: 2, BASE: 0 }
+        RZ  { EDGE_1: 2, EDGE_2: 6, BASE: 0 }
+        RZZ { EDGE_1: 4, EDGE_2: 14, BASE: 0 }
+        STB { EDGE: 16, BASE: 0 }
+    }
+}

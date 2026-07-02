@@ -39,17 +39,15 @@ def project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def resolve_pinmap_path(arg: str, root: Path) -> Path:
-    # Support both:
-    # 1. full/relative json path
-    # 2. short DUT name like "Dram" -> Verilog/pinmap/Dram.pinmap.json
-    candidate = Path(arg)
-    if candidate.suffix == ".json":
-        return candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
-    return (root / "Verilog" / "pinmap" / f"{arg}.pinmap.json").resolve()
+def strip_comments(text: str) -> str:
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    return re.sub(r"//.*", "", text)
 
 
 def parse_config(config_path: Path) -> PinMapConfig:
+    # Compatibility path for explicit .json input. Normal pingen DUT-name flow
+    # builds this config directly from the RTL module header instead.
+    #
     # Normalize raw json into typed structures so later code can rely on
     # concrete field names and int widths without repeated casting.
     raw = json.loads(config_path.read_text())
@@ -70,9 +68,10 @@ def parse_ports(dut_text: str, dut_module: str) -> dict[str, PortInfo]:
     # Parse an ANSI-style Verilog module header and extract each port's
     # direction and width. This generator intentionally reads only the DUT
     # interface and never tries to infer behavior from the module body.
+    text = strip_comments(dut_text)
     match = re.search(
-        rf"module\s+{re.escape(dut_module)}\s*\((.*?)\);\s",
-        dut_text,
+        rf"module\s+{re.escape(dut_module)}\s*\((.*?)\)\s*;",
+        text,
         re.DOTALL,
     )
     if not match:
@@ -82,7 +81,29 @@ def parse_ports(dut_text: str, dut_module: str) -> dict[str, PortInfo]:
     for direction, msb, lsb, name in PORT_RE.findall(match.group(1)):
         width = 1 if not msb else abs(int(msb) - int(lsb)) + 1
         ports[name] = PortInfo(direction=direction, width=width)
+    if not ports:
+        raise ValueError(f"no input/output ports found in {dut_module}")
     return ports
+
+
+def entries_from_ports(ports: dict[str, PortInfo], direction: Literal["input", "output"]) -> list[PinEntry]:
+    entries: list[PinEntry] = []
+    offset = 0
+    for name, info in ports.items():
+        if info["direction"] != direction:
+            continue
+        width = info["width"]
+        entries.append(PinEntry(port=name, lsb=offset, msb=offset + width - 1))
+        offset += width
+    return entries
+
+
+def build_config_from_ports(dut: str, ports: dict[str, PortInfo]) -> PinMapConfig:
+    return PinMapConfig(
+        dut=dut,
+        pin_in=entries_from_ports(ports, "input"),
+        pin_out=entries_from_ports(ports, "output"),
+    )
 
 
 def get_port_width(ports: dict[str, PortInfo], port_name: str) -> int:
@@ -102,14 +123,14 @@ def entry_width(entry: PinEntry) -> int:
 
 def calc_bus_width(entries: list[PinEntry]) -> int:
     # The external IN/OUT bus width is derived from the highest mapped bit.
-    # This keeps PIN_IN_NUM / PIN_OUT_NUM in Socket.v synced with pinmap.json.
+    # This keeps PIN_IN_NUM / PIN_OUT_NUM in Socket.v synced with the selected DUT.
     if not entries:
         raise ValueError("pin mapping must not be empty")
     return max(entry["msb"] for entry in entries) + 1
 
 
 def check_mapping(config: PinMapConfig, ports: dict[str, PortInfo]) -> None:
-    # Sanity-check the pinmap against the DUT interface before generating any
+    # Sanity-check the pin mapping against the DUT interface before generating any
     # files. We verify:
     # - the mapped port exists
     # - input/output direction matches
@@ -218,7 +239,11 @@ def emit_wrapper(config: PinMapConfig, ports: dict[str, PortInfo], pin_in_width:
     lines.append("")
 
     lines.append("    " + dut_module + " u_dut (")
-    ordered_ports = in_entries + out_entries
+    entries_by_port = {entry["port"]: entry for entry in in_entries + out_entries}
+    # Keep the real DUT instance readable by following the RTL module header
+    # order. In the normal DUT-name flow, adapter order is derived from that
+    # same header, so RTL is the single source of pin numbering.
+    ordered_ports = [entries_by_port[name] for name in ports if name in entries_by_port]
     for idx, entry in enumerate(ordered_ports):
         comma = "," if idx != len(ordered_ports) - 1 else ""
         lines.append(f"        .{entry['port']:<12}({entry['port']}){comma}")
@@ -263,14 +288,14 @@ def offset_width(depth: int) -> int:
     return (depth - 1).bit_length()
 
 
-def emit_ate_socket_config(config_path: Path,
+def emit_ate_socket_config(source_label: str,
                            pin_in_width: int,
                            pin_out_width: int,
                            depth: int = 32) -> str:
     return "\n".join([
         "#pragma once",
         "",
-        f"// Generated from {config_path.relative_to(project_root())}. Do not edit by hand.",
+        f"// Generated from {source_label}. Do not edit by hand.",
         "",
         "struct AteSocketConfig {",
         f"    static constexpr int kOffsetWidth = {offset_width(depth)};",
@@ -283,8 +308,8 @@ def emit_ate_socket_config(config_path: Path,
 
 def main() -> int:
     # Entry point:
-    # 1. resolve pinmap
-    # 2. parse DUT interface
+    # 1. parse DUT interface
+    # 2. build or load pin mapping
     # 3. validate mapping
     # 4. generate wrapper/adapters
     # 5. update Socket.v pin widths
@@ -293,18 +318,29 @@ def main() -> int:
         return 1
 
     root = project_root()
-    config_path = resolve_pinmap_path(sys.argv[1], root)
-    if not config_path.is_file():
-        print(f"pinmap not found: {config_path}", file=sys.stderr)
-        return 1
+    arg = sys.argv[1]
+    candidate = Path(arg)
 
-    config = parse_config(config_path)
-    dut_file = root / "Verilog" / "dut" / f"{config['dut']}.v"
+    if candidate.suffix == ".json":
+        config_path = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+        if not config_path.is_file():
+            print(f"pinmap not found: {config_path}", file=sys.stderr)
+            return 1
+        config = parse_config(config_path)
+        source_label = str(config_path.relative_to(root))
+    else:
+        config = None
+        source_label = f"Verilog/dut/{arg}.v"
+
+    dut_name = config["dut"] if config is not None else arg
+    dut_file = root / "Verilog" / "dut" / f"{dut_name}.v"
     if not dut_file.is_file():
         print(f"dut file not found: {dut_file}", file=sys.stderr)
         return 1
 
-    ports = parse_ports(dut_file.read_text(), config["dut"])
+    ports = parse_ports(dut_file.read_text(), dut_name)
+    if config is None:
+        config = build_config_from_ports(dut_name, ports)
     check_mapping(config, ports)
 
     pin_in_width = calc_bus_width(config["pin_in"])
@@ -314,7 +350,7 @@ def main() -> int:
         root / "Verilog" / "ate" / "DUT.v": emit_wrapper(config, ports, pin_in_width, pin_out_width),
         root / "Verilog" / "pin" / "PinInAdapter.v": emit_pin_in_adapter(config, ports, pin_in_width),
         root / "Verilog" / "pin" / "PinOutAdapter.v": emit_pin_out_adapter(config, ports, pin_out_width),
-        root / "C++" / "generated" / "AteSocketConfig.h": emit_ate_socket_config(config_path, pin_in_width, pin_out_width),
+        root / "C++" / "generated" / "AteSocketConfig.h": emit_ate_socket_config(source_label, pin_in_width, pin_out_width),
     }
 
     header = "// Generated by Verilog/pin/gen_pin_adapter.py. Do not edit by hand.\n\n"

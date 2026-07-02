@@ -230,7 +230,7 @@ void ATE::advance_phase() {
     clear_samp_();
     socketp_->ALERT = 0;
     ++phase_;
-    phase_in_period_ = (phase_in_period_ + 1U) % timing_.period_phases;
+    phase_in_period_ = (phase_in_period_ + 1U) % timing_.prd;
 }
 
 void ATE::advance_to_phase(uint64_t target_phase) {
@@ -244,7 +244,7 @@ void ATE::advance_to_phase(uint64_t target_phase) {
 
 // Public full timing-period advance. This is the vector-cycle primitive.
 void ATE::advance_period() {
-    for (uint32_t i = 0; i < timing_.period_phases; ++i) {
+    for (uint32_t i = 0; i < timing_.prd; ++i) {
         advance_phase();
     }
     ++cycle_;
@@ -260,7 +260,7 @@ void ATE::run_cycles(uint32_t cycles) {
 void ATE::set_timing(const TimingSet& timing) {
     validate_timing_set(timing);
     timing_ = timing;
-    phase_in_period_ %= timing_.period_phases;
+    phase_in_period_ %= timing_.prd;
 }
 
 void ATE::bind_nrz_drive(int pin, bool value, uint32_t pin_delay) {
@@ -454,7 +454,7 @@ void ATE::expect_output_field(int lsb, int width, uint32_t expected, uint32_t pi
     set_top_data(expected);
     const auto spec = CompareSpec::field(config.lsb, config.width, pin_delay, expected);
     schedule_sample_event_(
-        phase_with_offset_(phase_, timing_.sample_phase, timing_.sample_base_phase, "sample"),
+        phase_with_offset_(phase_, timing_.stb.edge, timing_.stb.base, "sample"),
         spec);
 }
 
@@ -562,7 +562,7 @@ void ATE::sample(const CompareSpec& spec) {
     validate_compare_spec_(spec);
 
     schedule_sample_event_(
-        phase_with_offset_(phase_, timing_.sample_phase, timing_.sample_base_phase, "sample"),
+        phase_with_offset_(phase_, timing_.stb.edge, timing_.stb.base, "sample"),
         spec);
     pulse_samp_();
 }
@@ -917,11 +917,11 @@ void ATE::schedule_nrz_pending_drives_() {
     if (nrz_pending_mask_ != 0U) {
         updated_mask = nrz_pending_mask_;
         const uint32_t nrz_phase =
-            phase_in_period_ <= timing_.nrz_rise_phase
-                ? timing_.nrz_rise_phase - phase_in_period_
+            phase_in_period_ <= timing_.nrz.edge
+                ? timing_.nrz.edge - phase_in_period_
                 : 0U;
         const uint64_t due_phase =
-            phase_with_offset_(phase_, nrz_phase, timing_.nrz_base_phase, "nrz");
+            phase_with_offset_(phase_, nrz_phase, timing_.nrz.base, "nrz");
 
         for (int pin = 0; pin < kPinInCount; ++pin) {
             const uint32_t mask = 1U << pin;
@@ -945,7 +945,7 @@ void ATE::schedule_nrz_pending_drives_() {
                                   pin,
                                   value,
                                   pin_delay,
-                                  pin_delay == 0U ? 0U : timing_.period_phases,
+                                  pin_delay == 0U ? 0U : timing_.prd,
                                   pin_delay == 0U,
                                   default_value_event);
             nrz_pending_pin_delays_[static_cast<std::size_t>(pin)] = 0;
@@ -968,14 +968,14 @@ void ATE::schedule_rzz_bound_drives_() {
         }
         const bool default_value = (rzz_default_values_ & mask) != 0U;
         schedule_drive_event_(phase_with_offset_(row_start_phase,
-                                                 timing_.rzz_rise_phase,
-                                                 timing_.rzz_base_phase,
+                                                 timing_.rzz.edge_1,
+                                                 timing_.rzz.base,
                                                  "rzz_rise"),
                               pin,
                               !default_value);
         schedule_drive_event_(phase_with_offset_(row_start_phase,
-                                                 timing_.rzz_fall_phase,
-                                                 timing_.rzz_base_phase,
+                                                 timing_.rzz.edge_2,
+                                                 timing_.rzz.base,
                                                  "rzz_fall"),
                               pin,
                               default_value);
@@ -1032,7 +1032,10 @@ void ATE::execute_scheduled_sample_events_() {
         const auto event = scheduled_sample_events_.front();
         scheduled_sample_events_.pop_front();
 
-        pending_compare_specs_.push_back(event.spec);
+        pending_compare_specs_.push_back(PendingCompareSpec{
+            .group = event.due_phase,
+            .spec = event.spec,
+        });
         switch (event.spec.mode) {
         case CompareSpec::Mode::AllPins:
             enable_all_samples_(event.spec.pin_delay);
@@ -1099,18 +1102,46 @@ void ATE::capture_sample_if_ready_() {
         return;
     }
 
-    CompareSpec captured_spec{};
-    if (!pending_compare_specs_.empty()) {
-        captured_spec = pending_compare_specs_.front();
+    bool captured_any = false;
+    // Bug note:
+    // - HandshakeEcho CHECK samples several output pins at the same STB phase;
+    //   those compare specs must be allowed to consume one shared SAMP_ALERT.
+    // - MRR3/serial reads schedule one sample per row with hardware delay; by
+    //   the first delayed alert arrives, later rows may already be pending, but
+    //   they must not be consumed until their own delayed alert.
+    // The scheduled due phase is therefore the capture group boundary.
+    const uint64_t captured_group = pending_compare_specs_.empty()
+        ? 0
+        : pending_compare_specs_.front().group;
+    while (!pending_compare_specs_.empty()) {
+        const auto pending = pending_compare_specs_.front();
+        if (pending.group != captured_group) {
+            break;
+        }
+        const auto captured_spec = pending.spec;
+        const uint32_t requested_mask = compare_mask_(captured_spec);
+        if ((socketp_->SAMP_ALERT & requested_mask) != requested_mask) {
+            break;
+        }
+
         pending_compare_specs_.pop_front();
+        last_sample_.cycle = cycle_;
+        last_sample_.sample_mask = socketp_->SAMP_ALERT;
+        last_sample_.raw = socketp_->SAMP_OUT;
+        last_sample_.top_data_snapshot = aligned_compare_value_(captured_spec);
+        last_sample_.compare_spec = captured_spec;
+        captured_samples_.push_back(last_sample_);
+        captured_any = true;
     }
 
-    last_sample_.cycle = cycle_;
-    last_sample_.sample_mask = socketp_->SAMP_ALERT;
-    last_sample_.raw = socketp_->SAMP_OUT;
-    last_sample_.top_data_snapshot = aligned_compare_value_(captured_spec);
-    last_sample_.compare_spec = captured_spec;
-    captured_samples_.push_back(last_sample_);
+    if (!captured_any) {
+        last_sample_.cycle = cycle_;
+        last_sample_.sample_mask = socketp_->SAMP_ALERT;
+        last_sample_.raw = socketp_->SAMP_OUT;
+        last_sample_.top_data_snapshot = 0;
+        last_sample_.compare_spec = CompareSpec{};
+        captured_samples_.push_back(last_sample_);
+    }
 }
 
 // Build the bit-mask that a compare request requires the sample to cover.
@@ -1229,20 +1260,25 @@ PYBIND11_MODULE(ate, m) {
                     py::arg("pin_delay") = 0,
                     py::arg("expected") = 0);
 
+    py::class_<SingleEdgeTiming>(m, "SingleEdgeTiming")
+        .def(py::init<>())
+        .def_readwrite("edge", &SingleEdgeTiming::edge)
+        .def_readwrite("base", &SingleEdgeTiming::base);
+
+    py::class_<TwoEdgeTiming>(m, "TwoEdgeTiming")
+        .def(py::init<>())
+        .def_readwrite("edge_1", &TwoEdgeTiming::edge_1)
+        .def_readwrite("edge_2", &TwoEdgeTiming::edge_2)
+        .def_readwrite("base", &TwoEdgeTiming::base);
+
     py::class_<TimingSet>(m, "TimingSet")
         .def(py::init<>())
         .def_readwrite("name", &TimingSet::name)
-        .def_readwrite("period_phases", &TimingSet::period_phases)
-        .def_readwrite("nrz_rise_phase", &TimingSet::nrz_rise_phase)
-        .def_readwrite("nrz_base_phase", &TimingSet::nrz_base_phase)
-        .def_readwrite("rz_rise_phase", &TimingSet::rz_rise_phase)
-        .def_readwrite("rz_return_phase", &TimingSet::rz_return_phase)
-        .def_readwrite("rz_base_phase", &TimingSet::rz_base_phase)
-        .def_readwrite("rzz_rise_phase", &TimingSet::rzz_rise_phase)
-        .def_readwrite("rzz_fall_phase", &TimingSet::rzz_fall_phase)
-        .def_readwrite("rzz_base_phase", &TimingSet::rzz_base_phase)
-        .def_readwrite("sample_phase", &TimingSet::sample_phase)
-        .def_readwrite("sample_base_phase", &TimingSet::sample_base_phase);
+        .def_readwrite("prd", &TimingSet::prd)
+        .def_readwrite("nrz", &TimingSet::nrz)
+        .def_readwrite("rz", &TimingSet::rz)
+        .def_readwrite("rzz", &TimingSet::rzz)
+        .def_readwrite("stb", &TimingSet::stb);
 
     py::enum_<DriveWaveformKind>(m, "DriveWaveformKind")
         .value("NRZ", DriveWaveformKind::NRZ)

@@ -1,4 +1,4 @@
-SOCKET
+SOCKET {
     IN  R            { PIN: 0,       WAV: RZ,  DEF: 0 }
     IN  W            { PIN: 1,       WAV: RZ,  DEF: 0 }
     IN  ADDR         { PIN: [2:9],   WAV: NRZ, DEF: 0 }
@@ -10,8 +10,8 @@ SOCKET
     IN  CLK          { PIN: 29,      WAV: RZZ, DEF: 0 }
     IN  RST_N        { PIN: 30,      WAV: NRZ, DEF: 1 }
 
-    OUT DQ_IE        { PIN: 0,       WAV: STB, EXP: 0 }
-    OUT DQ_TX_DATA   { PIN: [1:8],   WAV: STB, EXP: 0 }
-    OUT DQ_OE        { PIN: 9,       WAV: STB, EXP: 0 }
-    OUT DQ_OUT_VALID { PIN: 10,      WAV: STB, EXP: 0 }
-END
+    OUT DQ_IE        { PIN: 0,       WAV: STB }
+    OUT DQ_TX_DATA   { PIN: [1:8],   WAV: STB }
+    OUT DQ_OE        { PIN: 9,       WAV: STB }
+    OUT DQ_OUT_VALID { PIN: 10,      WAV: STB }
+}

@@ -13,6 +13,7 @@ class Pin:
     lsb: int
     width: int
     waveform: ate.DriveWaveform
+    timing_variant: str = "default"
     default_value: int = 0
 
 
@@ -21,14 +22,16 @@ class CommandAction:
     kind: str
     pin_name: str
     param_index: int | None = None
+    literal_value: int | None = None
     pin_delay_enabled: bool = False
 
 
-@dataclass(frozen=True)
+@dataclass
 class Command:
     name: str
     params: tuple[str, ...]
     actions: tuple[CommandAction, ...]
+    delay: int = 0
 
 
 class Socket:
@@ -65,3 +68,7 @@ class CommandSet:
             return self._by_name[name]
         except KeyError as exc:
             raise KeyError(f"unknown command: {name}") from exc
+
+    @property
+    def commands(self) -> tuple[Command, ...]:
+        return tuple(self._by_name.values())

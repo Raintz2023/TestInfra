@@ -255,6 +255,15 @@ private:
         CompareSpec spec = CompareSpec{};
     };
 
+    struct PendingCompareSpec {
+        // Compare specs that share one scheduled sample phase belong to the
+        // same capture group. This lets one hardware SAMP_ALERT satisfy
+        // multi-pin samples from a single vector row, while preventing later
+        // delayed rows from being consumed by the first alert.
+        uint64_t group = 0;
+        CompareSpec spec = CompareSpec{};
+    };
+
     // Internal helpers: reset/bootstrap and low-level socket staging.
     void init_reset_sequence_();
     void clear_driv_();
@@ -323,7 +332,7 @@ private:
     bool loading_vector_defaults_ = false;
     std::vector<InputPinConfig> input_pin_configs_;
     std::vector<OutputPinConfig> output_pin_configs_;
-    std::deque<CompareSpec> pending_compare_specs_;
+    std::deque<PendingCompareSpec> pending_compare_specs_;
 
     SampleRecord last_sample_{};
     std::vector<SampleRecord> captured_samples_;

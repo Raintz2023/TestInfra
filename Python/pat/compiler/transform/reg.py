@@ -5,6 +5,7 @@ import re
 from lark import Transformer, v_args
 
 from Python.pat.compiler.ir import ASSIGN
+from Python.pat.compiler.registers import RegisterSet
 
 
 @v_args(inline=True)
@@ -20,21 +21,29 @@ class RegToIR(Transformer):
         allowed_rhs: set[str] | None = None,
         register_widths: dict[str, int] | None = None,
         register_families: dict[str, str] | None = None,
+        registers: RegisterSet | None = None,
     ):
         super().__init__()
         self.allowed_lhs = allowed_lhs
         self.allowed_rhs = allowed_rhs
         self.register_widths = register_widths or {}
         self.register_families = register_families or {}
+        self.registers = registers
 
     def int_lit(self, t): return int(t)
     def hex_lit(self, t): return int(str(t), 16)
-    def var(self, t): return t.value
+    def _canonical_name(self, name: str) -> str:
+        if self.registers is None:
+            return name
+        return self.registers.canonical_name(name)
+
+    def var(self, t): return self._canonical_name(t.value)
     def invert_var(self, t):
-        name = t.value
+        name = self._canonical_name(t.value)
         if name not in self.register_widths:
             raise Exception(f"/{name} requires a REGISTER width declaration")
-        return f"invert_register({name!r}, {name}, {self.register_widths[name]})"
+        signed = "True" if self.registers is not None and self.registers.signed_names.get(name, False) else "False"
+        return f"invert_register({name!r}, {name}, {self.register_widths[name]}, signed={signed})"
 
     def _rhs_register_tokens(self, value: str) -> set[str]:
         names: set[str] = set()
@@ -51,10 +60,11 @@ class RegToIR(Transformer):
         return names
 
     def assign(self, name, value):
-        lhs = name.value
+        lhs = self._canonical_name(name.value)
         if self.allowed_lhs is not None and lhs not in self.allowed_lhs:
-            allowed = ", ".join(sorted(self.allowed_lhs))
-            raise Exception(f"{lhs} is not declared in REGISTER block; allowed: {allowed}")
+            if self.registers is not None:
+                raise Exception(self.registers.undeclared_name_error(name.value))
+            raise Exception(f"{lhs} is not declared in REGISTER block; allowed: {', '.join(sorted(self.allowed_lhs))}")
 
         if isinstance(value, str):
             rhs_tokens = self._rhs_register_tokens(value)

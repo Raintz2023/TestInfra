@@ -16,9 +16,8 @@ SUPPORTED_OUTPUT_WAVEFORMS = {"STB"}
 @v_args(inline=True)
 class SocToIR(Transformer):
     def NAME(self, token): return token.value
-    def DIRECTION(self, token): return token.value
-    def DEFAULT_KIND(self, token): return token.value
     def WAVE_NAME(self, token): return token.value
+    def VARIANT_NAME(self, token): return token.value
     def INT(self, token): return int(token)
     def hex_lit(self, token): return int(str(token), 16)
     def int_lit(self, token): return int(token)
@@ -29,19 +28,33 @@ class SocToIR(Transformer):
     def range_pin(self, lsb, msb):
         return int(lsb), int(msb)
 
-    def socket_entry(self, direction, name, pin_range, waveform, default_kind, default_value):
+    def wave_ref(self, waveform, variant=None):
+        return str(waveform).upper(), "default" if variant is None else str(variant)
+
+    def input_entry(self, name, pin_range, waveform, default_value):
         lsb, msb = pin_range
-        if direction == "IN" and default_kind != "DEF":
-            raise RuntimeError(f"input pin {name} must use DEF")
-        if direction == "OUT" and default_kind != "EXP":
-            raise RuntimeError(f"output pin {name} must use EXP")
+        waveform_name, timing_variant = waveform
         return PinDef(
             name=str(name),
-            input=(direction == "IN"),
+            input=True,
             lsb=lsb,
             width=msb - lsb + 1,
-            waveform=str(waveform).upper(),
+            waveform=waveform_name,
+            timing_variant=timing_variant,
             default_value=int(default_value),
+        )
+
+    def output_entry(self, name, pin_range, waveform):
+        lsb, msb = pin_range
+        waveform_name, timing_variant = waveform
+        return PinDef(
+            name=str(name),
+            input=False,
+            lsb=lsb,
+            width=msb - lsb + 1,
+            waveform=waveform_name,
+            timing_variant=timing_variant,
+            default_value=0,
         )
 
     def socket_def(self, *entries):
