@@ -10,9 +10,11 @@ module PinOut #(
 
     input wire [PIN_NUM-1:0] SAMP,
     input wire [PIN_NUM*WIDTH-1:0] SAMP_IN,
+    input wire [PIN_NUM*WIDTH-1:0] SAMP_VALID_IN,
     input wire [PIN_NUM*DELAY_W-1:0] SAMP_DELAY,
 
     output wire [PIN_NUM*WIDTH-1:0] SAMP_OUT,
+    output wire [PIN_NUM*WIDTH-1:0] SAMP_VALID_OUT,
     output wire [PIN_NUM-1:0] SAMP_ALERT,
     output wire [PIN_NUM*OFFSET_W-1:0] SAMP_CNTS
 );
@@ -23,13 +25,16 @@ for (i = 0; i < PIN_NUM; i = i + 1) begin : PIN
 
     wire samp_i;
     wire [WIDTH-1:0] samp_in_i;
+    wire [WIDTH-1:0] samp_valid_in_i;
     wire [DELAY_W-1:0] delay_i;
 
     assign samp_i     = SAMP[i];
     assign samp_in_i  = SAMP_IN[i*WIDTH +: WIDTH];
+    assign samp_valid_in_i = SAMP_VALID_IN[i*WIDTH +: WIDTH];
     assign delay_i    = SAMP_DELAY[i*DELAY_W +: DELAY_W];
 
     wire [WIDTH-1:0] samp_out_i;
+    wire [WIDTH-1:0] samp_valid_out_i;
     wire alert_i;
     wire [OFFSET_W-1:0] cnt_i;
 
@@ -39,8 +44,10 @@ for (i = 0; i < PIN_NUM; i = i + 1) begin : PIN
         .RST_N(RST_N),
         .SAMP(samp_i),
         .SAMP_IN(samp_in_i),
+        .SAMP_VALID_IN(samp_valid_in_i),
         .SAMP_DELAY(delay_i),
         .SAMP_OUT(samp_out_i),
+        .SAMP_VALID_OUT(samp_valid_out_i),
         .SAMP_ALERT(alert_i)
     );
 
@@ -53,6 +60,7 @@ for (i = 0; i < PIN_NUM; i = i + 1) begin : PIN
 
     // pack回去
     assign SAMP_OUT[i*WIDTH +: WIDTH] = samp_out_i;
+    assign SAMP_VALID_OUT[i*WIDTH +: WIDTH] = samp_valid_out_i;
     assign SAMP_ALERT[i]              = alert_i;
     assign SAMP_CNTS[i*OFFSET_W +: OFFSET_W] = cnt_i;
 

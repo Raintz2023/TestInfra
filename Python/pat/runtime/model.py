@@ -5,6 +5,8 @@ from typing import Iterable
 
 import ate
 
+from Python.pat.physical import PERIOD, Period
+
 
 @dataclass(frozen=True)
 class Pin:
@@ -15,6 +17,15 @@ class Pin:
     waveform: ate.DriveWaveform
     timing_variant: str = "default"
     default_value: int = 0
+    supply: str | None = None
+    voltage_variant: str = "default"
+
+
+@dataclass(frozen=True)
+class Power:
+    name: str
+    supply: str
+    voltage_variant: str = "default"
 
 
 @dataclass(frozen=True)
@@ -26,17 +37,34 @@ class CommandAction:
     pin_delay_enabled: bool = False
 
 
-@dataclass
 class Command:
-    name: str
-    params: tuple[str, ...]
-    actions: tuple[CommandAction, ...]
-    delay: int = 0
+    def __init__(self,
+                 name: str,
+                 params: tuple[str, ...],
+                 actions: tuple[CommandAction, ...],
+                 delay: Period = PERIOD(0)) -> None:
+        self.name = name
+        self.params = params
+        self.actions = actions
+        self.delay = delay
+
+    @property
+    def delay(self) -> Period:
+        return self._delay
+
+    @delay.setter
+    def delay(self, value: Period) -> None:
+        if not isinstance(value, Period):
+            raise TypeError(f"command delay must be Period, got {type(value).__name__}")
+        if value.count < 0:
+            raise ValueError("command delay must be non-negative")
+        self._delay = value
 
 
 class Socket:
-    def __init__(self, pins: Iterable[Pin]):
+    def __init__(self, pins: Iterable[Pin], powers: Iterable[Power] = ()):
         self._pins = tuple(pins)
+        self._powers = tuple(powers)
         self._by_name = {pin.name: pin for pin in self._pins}
 
     def configure(self, ate_obj: ate.ATE) -> None:
@@ -51,6 +79,10 @@ class Socket:
     @property
     def pins(self) -> tuple[Pin, ...]:
         return self._pins
+
+    @property
+    def powers(self) -> tuple[Power, ...]:
+        return self._powers
 
     def pin(self, name: str) -> Pin:
         try:

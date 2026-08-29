@@ -24,8 +24,8 @@
   ],
   "folding": {
     "markers": {
-      "start": "^\\s*(DEFINE|SOCKET|TIMING|BEGIN)\\b",
-      "end": "^\\s*END\\b"
+      "start": "^\\s*(COMMAND|DEFINE|SOCKET|TIMING|VOLTAGE|REGISTER|FUNCTION|BEGIN)\\b.*(?:\\{|$)",
+      "end": "^\\s*(END|\\})\\s*$"
     }
   },
   "wordPattern": "(-?\\d*\\.\\d\\w*)|([^`~!@%\\^&*()=+[{\\]}\\\\|;:'\",.<>/?\\s]+)"

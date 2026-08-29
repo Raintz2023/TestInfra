@@ -1,9 +1,0 @@
-{
-  "dut": "Encoder",
-  "pin_in": [
-    { "port": "IN_", "lsb": 0, "msb": 15 }
-  ],
-  "pin_out": [
-    { "port": "OUT_", "lsb": 0, "msb": 3 }
-  ]
-}

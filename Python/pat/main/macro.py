@@ -1,353 +1,713 @@
-from constant import PatternContext
-from tool import PatternRuntime, parse_range
-from subroutine import RW_DQ_DQS_DELAY
+from define import TiContext, TiScanCases
+from Python.pat.physical import Period, Time, Voltage
+from subroutine import (
+    sr_parse_range,
+    sr_rotate_right8,
+    sr_read_write_delay,
+    sr_voltage_window,
+    sr_load_pattern,
+    sr_pass_window,
+    sr_pass_windows,
+    sr_print_test_start,
+    sr_print_test_stop,
+    sr_print_scan_grid,
+    sr_run_scan_cases,
+    sr_window_center,
+)
 
-
-def Read_Train(context: PatternContext,
+def Read_Train(context: TiContext,
             test_name:str,
             pattern_name:str,
             testflow_num:int=0,
             x_range:str='',
             y_range:str='',
-            trace_enable:bool=True,
-            print_samples:bool=False):
-    """Sweep X/Y registers using the timing already defined by the pattern."""
+            period:Time=Time.PS(100),
+            voltage:Voltage=Voltage.MV(1200),
+            trace_enable:bool=False,
+            print_samples:bool=False,
+            workers:int=1):
 
-    xr = parse_range(x_range)
-    yr = parse_range(y_range)
-    pattern = PatternRuntime(pattern_name)
+    # --- Inputs and scan axes ---
+    XR = sr_parse_range(x_range, Time.PS)
+    YR = sr_parse_range(y_range, Time.PS)
+    pattern = sr_load_pattern(pattern_name)
 
-    print("--- ATE Test Start ---")
+    sr_print_test_start(test_name)
 
-    print("TRAINING...")
+    RL = Period(35)
+    WL = Period(35)
+    Reg = pattern.Reg
+    Reg.RL = RL
+    Reg.WL = WL
 
-    x_pass_window = []
-    y_pass_window = []
-    rl = 35
-    wl = 35
-    for x in xr:
-        session = pattern.create_session(
-            wave_name=pattern.wave_path(f"read_train_dqs_x{x}.vcd"),
-            trace_enable=trace_enable,
-        )
-        session.timing("TS1").stb.variant("DQS").base = x
-        session.timing("TS1").stb.variant("DQ").open = 0
+    # --- Build independent DQS and DQ scan configurations ---
+    x_cases = TiScanCases("dqs")
+    for X in XR:
+        session = pattern.ti_create_scan_session()
+        session.ti_timing("TS0").prd = period
+        # session.ti_timing("TS1").prd = period
 
-        RW_DQ_DQS_DELAY(session, rl, wl)
+        session.ti_timing("TS0").stb.variant("DQS").base = X
+        session.ti_timing("TS0").stb.variant("DQ").close = True
+        sr_read_write_delay(session, RL, WL)
+        x_cases.append(session, X, trace_enable=trace_enable)
 
-        compare_results = session.run(testflow_num, RL=rl)
+    y_cases = TiScanCases("dq")
+    for Y in YR:
+        session = pattern.ti_create_scan_session()
+        session.ti_timing("TS0").prd = period
+        session.ti_voltage("VS1").vdc = voltage
+        # session.ti_timing("TS1").prd = period
 
-        if compare_results:
-            x_pass_window.append(x)
-        
-        session.print_samples(print_samples)
-        session.print_compare_results()
-    
+        session.ti_timing("TS0").stb.variant("DQS").close = True
+        session.ti_timing("TS0").stb.variant("DQ").base = Y
+        sr_read_write_delay(session, RL, WL)
+        y_cases.append(session, Y, trace_enable=trace_enable)
+
+    # --- Execute scans ---
+    x_results = sr_run_scan_cases(
+        x_cases,
+        testflow_num=testflow_num,
+        workers=workers,
+    )
+    y_results = sr_run_scan_cases(
+        y_cases,
+        testflow_num=testflow_num,
+        workers=workers,
+    )
+
+    # --- Analyze and persist training results ---
+    X_PASS_WINDOW = sr_pass_window(XR, x_results)
+    Y_PASS_WINDOW = sr_pass_window(YR, y_results)
+
+    sr_print_scan_grid(
+        x_results, XR, x_name="X"
+    )
+    print()
+    sr_print_scan_grid(
+        y_results, YR, x_name="Y"
+    )
     print()
 
-    for y in yr:
-        session = pattern.create_session(
-            wave_name=pattern.wave_path(f"read_train_dq_y{y}.vcd"),
-            trace_enable=trace_enable,
-        )
-        session.timing("TS1").stb.variant("DQS").open = 0
-        session.timing("TS1").stb.variant("DQ").base = y
-        RW_DQ_DQS_DELAY(session, rl, wl)
-        
-        compare_results = session.run(testflow_num, RL=rl)
+    context["READ_DQS_BASE"] = sr_window_center(X_PASS_WINDOW)
+    context["READ_DQ_BASE"] = sr_window_center(Y_PASS_WINDOW)
 
-        if compare_results:
-            y_pass_window.append(y)
-        
-        session.print_samples(print_samples)
-        session.print_compare_results()
-    
-    print()
+    print(f"X = {context.ti_get('READ_DQS_BASE', Time.PS)} ")
+    print(f"Y = {context.ti_get('READ_DQ_BASE', Time.PS)} \n")
 
-    if x_pass_window and y_pass_window:
-        context.read_dqs_base = int(sum(x_pass_window) / len(x_pass_window))
-        context.read_dq_base = int(sum(y_pass_window) / len(y_pass_window))
+    context.ti_export_vars("Python/pat/training/chip.py", "READ_DQS_BASE", "READ_DQ_BASE")
 
-    print(f"X = {context.read_dqs_base} phases\n")
-    print(f"Y = {context.read_dq_base} phases\n")
-
-    context.export_vars("Python/pat/training/chip.py", "read_dqs_base", "read_dq_base")
-
-    print("--- ATE Test Stop ---")
+    sr_print_test_stop(test_name)
 
 
-def Write_Train(context: PatternContext,
+def Read_Eye(context: TiContext,
             test_name:str,
             pattern_name:str,
             testflow_num:int=0,
             x_range:str='',
             y_range:str='',
-            trace_enable:bool=True,
-            print_samples:bool=False):
-    """Sweep X/Y registers using the timing already defined by the pattern."""
+            period:Time=Time.PS(100),
+            voltage:Voltage=Voltage.MV(1200),
+            trace_enable:bool=False,
+            print_samples:bool=False,
+            workers:int=1):
 
-    context.import_vars("Python/pat/training/chip.py")
+    # --- Inputs and trained values ---
+    context.ti_import_vars("Python/pat/training/chip.py")
 
-    xr = parse_range(x_range)
-    yr = parse_range(y_range)
-    pattern = PatternRuntime(pattern_name)
+    XR = sr_parse_range(x_range, Time.PS)
+    YR = sr_parse_range(y_range, Voltage.MV)
+    pattern = sr_load_pattern(pattern_name)
 
-    read_dqs_base = context.read_dqs_base
-    read_dq_base = context.read_dq_base
+    READ_DQS_BASE = context.ti_get("READ_DQS_BASE", Time.PS)
+    READ_DQ_BASE = context.ti_get("READ_DQ_BASE", Time.PS)
 
-    print("--- ATE Test Start ---")
+    sr_print_test_start(test_name)
 
-    print("TRAINING...")
-    x_pass_window = []
-    y_pass_window = []
+    RL = Period(35)
+    WL = Period(35)
+    Reg = pattern.Reg
+    Reg.RL = RL
+    Reg.WL = WL
 
-    rl = 35
-    wl = 35
-    for y in yr:
-        for x in xr:
-            session = pattern.create_session(
-                wave_name=pattern.wave_path(f"write_train_x{x}_y{y}.vcd"),
-                trace_enable=trace_enable,
+    # --- Build independent timing and voltage scan configurations ---
+    cases = TiScanCases()
+    for Y in YR:
+        for X in XR:
+            session = pattern.ti_create_scan_session()
+            session.ti_timing("TS0").prd = period
+            session.ti_voltage("VS1").vdc = voltage
+            # Timing
+            session.ti_timing("TS0").stb.variant("DQS").base = READ_DQS_BASE + X
+            session.ti_timing("TS0").stb.variant("DQ").base = READ_DQ_BASE + X
+            sr_read_write_delay(session, RL, WL)
+
+            # Voltage
+            VOL, VOH = sr_voltage_window(Y, Voltage.MV(50))
+            session.ti_voltage("VS1").vout.variant("DQ").vol = VOL
+            session.ti_voltage("VS1").vout.variant("DQ").voh = VOH
+            session.ti_voltage("VS1").vout.variant("DQS").vol = VOL
+            session.ti_voltage("VS1").vout.variant("DQS").voh = VOH
+
+            cases.append(
+                session,
+                X,
+                Y,
+                trace_enable and X == Time.PS(0) and Y == Voltage.MV(600),
             )
-            session.timing("TS1").stb.variant("DQS").base = read_dqs_base
-            session.timing("TS1").stb.variant("DQ").base = read_dq_base
-            RW_DQ_DQS_DELAY(session, rl, wl)
 
-            session.timing("TS1").nrz.variant("DQS").base = 0   # fixed DQS
-            session.timing("TS1").nrz.variant("DQ").base = x
-            session.command("W").delay += y
-            session.command("WDQSH").delay += y
-            session.command("WDQSL").delay += y
+    # --- Execute and report scan ---
+    results = sr_run_scan_cases(
+        cases,
+        testflow_num=testflow_num,
+        workers=workers,
+    )
+    sr_print_scan_grid(results, XR, YR)
 
-            compare_results = session.run(testflow_num, RL=rl, WL=wl)
+    sr_print_test_stop(test_name)
 
-            if compare_results:
-                y_pass_window.append(y)
-                x_pass_window.append(x)
-            
-            session.print_samples(print_samples)
-            session.print_compare_results()
-        print()
-    
-    print()
 
-    if x_pass_window and y_pass_window:
-        context.dq_to_dqs_base = int(sum(x_pass_window) / len(x_pass_window))
-        context.write_dq_dqs_dealy = int(sum(y_pass_window) / len(y_pass_window))
-
-    print(f"X = {context.dq_to_dqs_base} phases\n")
-    print(f"Y = {context.write_dq_dqs_dealy} periods\n")
-    
-    context.export_vars("Python/pat/training/chip.py", "dq_to_dqs_base", "write_dq_dqs_dealy")
-
-    print("--- ATE Test Stop ---")
-
-def Write_Read(context: PatternContext,
+def Read_Digital(context: TiContext,
             test_name:str,
             pattern_name:str,
             testflow_num:int=0,
             x_range:str='',
             y_range:str='',
-            trace_enable:bool=True,
-            print_samples:bool=False):
-    """Sweep X/Y registers using the timing already defined by the pattern."""
+            trace_enable:bool=False,
+            print_samples:bool=False,
+            workers:int=1):
 
-    context.import_vars("Python/pat/training/chip.py")
+    # --- Inputs and trained values ---
+    context.ti_import_vars("Python/pat/training/chip.py")
 
-    xr = parse_range(x_range)
-    x_pass_windows = []
-    pattern = PatternRuntime(pattern_name)
+    XR = sr_parse_range(x_range, Time.PS)
+    YR = sr_parse_range(y_range, int)
+    pattern = sr_load_pattern(pattern_name)
 
-    print("--- ATE Test Start ---")
+    READ_DQS_BASE = context.ti_get("READ_DQS_BASE", Time.PS)
+    READ_DQ_BASE = context.ti_get("READ_DQ_BASE", Time.PS)
 
-    print("TRAINING...")
-    rl = 35
-    wl = 35
-    for x in xr:
-        session = pattern.create_session(
-            wave_name=pattern.wave_path(f"write_read_x{x}.vcd"),
-            trace_enable=trace_enable,
-        )
+    sr_print_test_start(test_name)
 
-        session.timing("TS1").stb.variant("DQS").base = context.read_dqs_base
-        session.timing("TS1").stb.variant("DQ").base = context.read_dq_base
+    RL = Period(35)
+    WL = Period(35)
+    Reg = pattern.Reg
+    Reg.RL = RL
+    Reg.WL = WL
 
-        session.command("RD").delay = x
-        RW_DQ_DQS_DELAY(session, rl - 4 + x, wl)
+    # --- Build independent timing and voltage scan configurations ---
+    cases = TiScanCases()
+    for Y in YR:
+        for X in XR:
+            session = pattern.ti_create_scan_session()
 
-        session.timing("TS1").nrz.variant("DQS").base = 0   # fixed DQS
-        session.timing("TS1").nrz.variant("DQ").base = context.dq_to_dqs_base
-        session.command("W").delay += context.write_dq_dqs_dealy
-        session.command("WDQSH").delay += context.write_dq_dqs_dealy
-        session.command("WDQSL").delay += context.write_dq_dqs_dealy
+            # Timing
+            session.ti_timing("TS1").stb.variant("DQS").base = READ_DQS_BASE + X
+            session.ti_timing("TS1").stb.variant("DQ").base = READ_DQ_BASE + X
+            sr_read_write_delay(session, RL, WL)
 
-        compare_results = session.run(testflow_num, RL=rl, WL=wl)
-        if compare_results:
-            x_pass_windows.append(x)
-
-        session.print_samples(print_samples)
-        session.print_compare_results()
-    
-    print()
-    print(x_pass_windows)
-    print("--- ATE Test Stop ---")
-
-def Mrr2_Status(context: PatternContext,
-                test_name:str,
-                pattern_name:str,
-                testflow_num:int=0,
-                x_range:str='',
-                y_range:str='',
-                trace_enable:bool=True,
-                print_samples:bool=False):
-    """Run one trained Serial pass while sweeping timing base offsets."""
-    xr = parse_range(x_range)
-
-    pattern = PatternRuntime(pattern_name)
-
-    print("--- ATE Test Start ---")
-    x_pass_window = []
-
-    read_dqs_base = context.read_dqs_base
-    read_dq_base = context.read_dq_base
-    rl = 35
-    wl = 35
-
-    if test_name == "Mrr2_Bit5_Status":
-        wave_name = "mrr2_Bit5_x"
-    elif test_name == "Mrr2_Bit1_Status":
-        wave_name = "mrr2_Bit1_x"
-    
-    for x in xr:
-        session = pattern.create_session(
-            wave_name=pattern.wave_path(f"{wave_name}{x}.vcd"),
-            trace_enable=trace_enable
-        )
-        session.timing("TS1").stb.variant("DQS").base = read_dqs_base
-        session.timing("TS1").stb.variant("DQ").base = read_dq_base
-        RW_DQ_DQS_DELAY(session, rl, wl)
-        session.command("R").delay += x
-        session.command("RDQSL").delay += x
-        session.command("RDQSH").delay += x
-        session.command("MRR").delay += x
-        compare_results = session.run(testflow_num, RL=rl, WL=wl)
-
-        if compare_results:
-            x_pass_window.append(x)
-
-        session.print_samples(print_samples)
-        session.print_compare_results()
-
-    print()    
-
-    if x_pass_window:
-        context.xt = int(sum(x_pass_window) / len(x_pass_window))
-
-    print(f"X = {context.xt}\n")
-
-    print("--- ATE Test Stop ---")
-
-
-def MRR(context: PatternContext,
-                test_name:str,
-                pattern_name:str,
-                testflow_num:int=0,
-                x_range:str='',
-                y_range:str='',
-                trace_enable:bool=True,
-                print_samples:bool=False):
-    """Run one trained Serial pass while sweeping timing base offsets."""
-
-    context.import_vars("Python/pat/training/chip.py")
-
-    xr = parse_range(x_range)
-    yr = parse_range(y_range)
-
-    pattern = PatternRuntime(pattern_name)
-
-    print("--- ATE Test Start ---")
-    x_pass_window = []
-
-    read_dqs_base = context.read_dqs_base
-    read_dq_base = context.read_dq_base
-
-    rl = 35
-    wl = 35
-
-    for y in yr:
-        result = []
-        for x in xr:
-            session = pattern.create_session(
-                wave_name=pattern.wave_path(f"MRR_x{x}_y{y}.vcd"),
-                trace_enable=trace_enable
+            # Number
+            cases.append(
+                session,
+                X,
+                Y,
+                trace_enable and X == Time.PS(0) and Y == 0,
             )
-            session.timing("TS1").stb.variant("DQS").open = 0
-            session.timing("TS1").stb.variant("DQ").base = read_dq_base
-            RW_DQ_DQS_DELAY(session, rl, wl)
-            session.command("R").delay += x
 
-            compare_results = session.run(testflow_num, RL=rl, WL=wl, TEMP=y)
+    # --- Execute and report scan ---
+    results = sr_run_scan_cases(
+        cases,
+        testflow_num=testflow_num,
+        workers=workers,
+    )
+    sr_print_scan_grid(results, XR, YR)
 
-            result.append('1') if compare_results else result.append('0')
+    sr_print_test_stop(test_name)
 
-            session.print_samples(print_samples)
-            session.print_compare_results()
+def Read_Sweep(context: TiContext,
+            test_name:str,
+            pattern_name:str,
+            testflow_num:int=0,
+            x_range:str='',
+            y_range:str='',
+            trace_enable:bool=False,
+            print_samples:bool=False,
+            workers:int=1):
 
-        print()    
+    # --- Inputs and trained values ---
+    context.ti_import_vars("Python/pat/training/chip.py")
 
-        print(f"MR{y} = {"".join(result)}\n")
+    XR = sr_parse_range(x_range, Time.PS)
+    YR = sr_parse_range(y_range, Voltage.MV)
+    pattern = sr_load_pattern(pattern_name)
 
-    print("--- ATE Test Stop ---")
+    READ_DQS_BASE = context.ti_get("READ_DQS_BASE", Time.PS)
+    READ_DQ_BASE = context.ti_get("READ_DQ_BASE", Time.PS)
+
+    sr_print_test_start(test_name)
+
+    RL = Period(35)
+    WL = Period(35)
+    Reg = pattern.Reg
+    Reg.RL = RL
+    Reg.WL = WL
+
+    # --- Build selected DQ or DQS sweep configurations ---
+    cases = TiScanCases()
+    for Y in YR:
+        for X in XR:
+            session = pattern.ti_create_scan_session()
+
+            # Timing
+            session.ti_timing("TS1").stb.variant("DQS").base = READ_DQS_BASE + X
+            session.ti_timing("TS1").stb.variant("DQ").base = READ_DQ_BASE + X
+            if test_name == "DQS_SWEEP":
+                session.ti_timing("TS1").stb.variant("DQ").close = True
+            elif test_name == "DQ_SWEEP":
+                session.ti_timing("TS1").stb.variant("DQS").close = True
+            sr_read_write_delay(session, RL, WL)
+
+            # Voltage
+            VOL, VOH = sr_voltage_window(Y, Voltage.MV(50))
+            session.ti_voltage("VS1").vout.variant("DQ").vol = VOL
+            session.ti_voltage("VS1").vout.variant("DQ").voh = VOH
+            session.ti_voltage("VS1").vout.variant("DQS").vol = VOL
+            session.ti_voltage("VS1").vout.variant("DQS").voh = VOH
+
+            cases.append(
+                session,
+                X,
+                Y,
+                trace_enable and X == Time.PS(0) and Y == Voltage.MV(600),
+            )
+
+    # --- Execute and report scan ---
+    results = sr_run_scan_cases(
+        cases,
+        testflow_num=testflow_num,
+        workers=workers,
+    )
+    sr_print_scan_grid(results, XR, YR)
 
 
+    sr_print_test_stop(test_name)
 
-def MR3(context: PatternContext,
+
+def Write_Train(context: TiContext,
+            test_name:str,
+            pattern_name:str,
+            testflow_num:int=0,
+            x_range:str='',
+            y_range:str='',
+            trace_enable:bool=False,
+            print_samples:bool=False,
+            workers:int=1):
+
+    # --- Inputs and trained read timing ---
+    context.ti_import_vars("Python/pat/training/chip.py")
+
+    XR = sr_parse_range(x_range, Time.PS)
+    YR = sr_parse_range(y_range, Period)
+    pattern = sr_load_pattern(pattern_name)
+
+    READ_DQS_BASE = context.ti_get("READ_DQS_BASE", Time.PS)
+    READ_DQ_BASE = context.ti_get("READ_DQ_BASE", Time.PS)
+
+    sr_print_test_start(test_name)
+
+    RL = Period(35)
+    WL = Period(35)
+    Reg = pattern.Reg
+    Reg.RL = RL
+    Reg.WL = WL
+    # --- Build write timing scan configurations ---
+    cases = TiScanCases()
+    for Y in YR:
+        for X in XR:
+            session = pattern.ti_create_scan_session()
+            session.ti_timing("TS1").stb.variant("DQS").base = READ_DQS_BASE
+            session.ti_timing("TS1").stb.variant("DQ").base = READ_DQ_BASE
+            sr_read_write_delay(session, RL, WL)
+
+            session.ti_timing("TS1").nrz.variant("DQS").base = Time.PS(0)
+            session.ti_timing("TS1").nrz.variant("DQ").base = X
+            session.ti_command("W").delay += Y
+            session.ti_command("WDQSH").delay += Y
+            session.ti_command("WDQSL").delay += Y
+
+            cases.append(session, X, Y, trace_enable)
+
+    # --- Execute scan ---
+    results = sr_run_scan_cases(
+        cases,
+        testflow_num=testflow_num,
+        workers=workers,
+    )
+    # --- Analyze and persist training results ---
+    X_PASS_WINDOW, Y_PASS_WINDOW = sr_pass_windows(XR, YR, results)
+    sr_print_scan_grid(results, XR, YR)
+
+    print()
+
+    context["DQ_TO_DQS_BASE"] = sr_window_center(X_PASS_WINDOW)
+    context["WRITE_DQ_DQS_DELAY"] = sr_window_center(Y_PASS_WINDOW)
+
+    print(f"X = {context.ti_get('DQ_TO_DQS_BASE', Time.PS)} phases\n")
+    print(f"Y = {context.ti_get('WRITE_DQ_DQS_DELAY', Period)}\n")
+
+    context.ti_export_vars("Python/pat/training/chip.py", "DQ_TO_DQS_BASE", "WRITE_DQ_DQS_DELAY")
+
+    sr_print_test_stop(test_name)
+
+def Write_Eye(context: TiContext,
+            test_name:str,
+            pattern_name:str,
+            testflow_num:int=0,
+            x_range:str='',
+            y_range:str='',
+            trace_enable:bool=False,
+            print_samples:bool=False,
+            workers:int=1):
+
+    # --- Inputs and trained timing ---
+    context.ti_import_vars("Python/pat/training/chip.py")
+
+    XR = sr_parse_range(x_range, Time.PS)
+    YR = sr_parse_range(y_range, int)
+
+    pattern = sr_load_pattern(pattern_name)
+
+    sr_print_test_start(test_name)
+
+    RL = Period(35)
+    WL = Period(35)
+    Reg = pattern.Reg
+    Reg.RL = RL
+    Reg.WL = WL
+    READ_DQS_BASE = context.ti_get("READ_DQS_BASE", Time.PS)
+    READ_DQ_BASE = context.ti_get("READ_DQ_BASE", Time.PS)
+    DQ_TO_DQS_BASE = context.ti_get("DQ_TO_DQS_BASE", Time.PS)
+    WRITE_DQ_DQS_DELAY = context.ti_get("WRITE_DQ_DQS_DELAY", Period)
+
+    # --- Build write-eye scan configurations ---
+    cases = TiScanCases()
+    for Y in YR:
+        for X in XR:
+            Reg.VREF = Y
+            session = pattern.ti_create_scan_session()
+
+            # Timing
+            session.ti_timing("TS1").stb.variant("DQS").base = READ_DQS_BASE
+            session.ti_timing("TS1").stb.variant("DQ").base = READ_DQ_BASE
+            sr_read_write_delay(session, RL, WL)
+            session.ti_timing("TS1").nrz.variant("DQS").base = Time.PS(0)
+            session.ti_timing("TS1").nrz.variant("DQ").base = DQ_TO_DQS_BASE + X
+            session.ti_command("W").delay += WRITE_DQ_DQS_DELAY
+            session.ti_command("WDQSH").delay += WRITE_DQ_DQS_DELAY
+            session.ti_command("WDQSL").delay += WRITE_DQ_DQS_DELAY
+
+            cases.append(
+                session,
+                X,
+                Y,
+                trace_enable
+                and X in (Time.PS(0), Time.PS(12), Time.PS(-12))
+                and Y == 90,
+            )
+
+    # --- Execute and report scan ---
+    results = sr_run_scan_cases(
+        cases,
+        testflow_num=testflow_num,
+        workers=workers,
+    )
+    sr_print_scan_grid(
+        results,
+        XR,
+        YR,
+        y_name="VREF",
+        print_samples=print_samples,
+    )
+
+
+    print()
+    sr_print_test_stop(test_name)
+
+def Write_Read(context: TiContext,
+            test_name:str,
+            pattern_name:str,
+            testflow_num:int=0,
+            x_range:str='',
+            y_range:str='',
+            trace_enable:bool=False,
+            print_samples:bool=False):
+
+    # --- Inputs and trained values ---
+    context.ti_import_vars("Python/pat/training/chip.py")
+
+    XR = sr_parse_range(x_range, Time.PS)
+    pattern = sr_load_pattern(pattern_name)
+
+    sr_print_test_start(test_name)
+
+    RL = Period(35)
+    WL = Period(35)
+    Reg = pattern.Reg
+    Reg.RL = RL
+    Reg.WL = WL
+    READ_DQS_BASE = context.ti_get("READ_DQS_BASE", Time.PS)
+    READ_DQ_BASE = context.ti_get("READ_DQ_BASE", Time.PS)
+    DQ_TO_DQS_BASE = context.ti_get("DQ_TO_DQS_BASE", Time.PS)
+    WRITE_DQ_DQS_DELAY = context.ti_get("WRITE_DQ_DQS_DELAY", Period)
+
+    # --- Create and configure one ATE session ---
+    session = pattern.ti_create_session(
+        wave_name=pattern.ti_wave_path(f"write_read.vcd"),
+        trace_enable=trace_enable,
+    )
+
+    session.ti_timing("TS1").stb.variant("DQS").base = READ_DQS_BASE
+    session.ti_timing("TS1").stb.variant("DQ").base = READ_DQ_BASE
+
+    sr_read_write_delay(session, RL, WL)
+
+    session.ti_timing("TS1").nrz.variant("DQS").base = Time.PS(0)   # fixed DQS
+    session.ti_timing("TS1").nrz.variant("DQ").base = DQ_TO_DQS_BASE
+    session.ti_command("W").delay += WRITE_DQ_DQS_DELAY
+    session.ti_command("WDQSH").delay += WRITE_DQ_DQS_DELAY
+    session.ti_command("WDQSL").delay += WRITE_DQ_DQS_DELAY
+
+    # --- Execute and report ---
+    compare_results = session.ti_run(testflow_num)
+
+    session.ti_print_samples(print_samples)
+    session.ti_print_compare_results()
+
+    print()
+    sr_print_test_stop(test_name)
+
+def tWTR(context: TiContext,
+            test_name:str,
+            pattern_name:str,
+            testflow_num:int=0,
+            x_range:str='',
+            y_range:str='',
+            trace_enable:bool=False,
+            print_samples:bool=False,
+            workers:int=1):
+
+    # --- Inputs and trained values ---
+    context.ti_import_vars("Python/pat/training/chip.py")
+
+    XR = sr_parse_range(x_range, Period)
+    pattern = sr_load_pattern(pattern_name)
+
+    sr_print_test_start(test_name)
+
+
+    RL = Period(35)
+    WL = Period(35)
+    Reg = pattern.Reg
+    Reg.RL = RL
+    Reg.WL = WL
+    READ_DQS_BASE = context.ti_get("READ_DQS_BASE", Time.PS)
+    READ_DQ_BASE = context.ti_get("READ_DQ_BASE", Time.PS)
+    DQ_TO_DQS_BASE = context.ti_get("DQ_TO_DQS_BASE", Time.PS)
+    WRITE_DQ_DQS_DELAY = context.ti_get("WRITE_DQ_DQS_DELAY", Period)
+    # --- Build tWTR scan configurations ---
+    cases = TiScanCases()
+    for X in XR:
+        session = pattern.ti_create_scan_session()
+        session.ti_timing("TS1").stb.variant("DQS").base = READ_DQS_BASE
+        session.ti_timing("TS1").stb.variant("DQ").base = READ_DQ_BASE
+
+        session.ti_command("RD").delay = X
+        sr_read_write_delay(session, RL + X - Period(4), WL)
+
+        session.ti_timing("TS1").nrz.variant("DQS").base = Time.PS(0)
+        session.ti_timing("TS1").nrz.variant("DQ").base = DQ_TO_DQS_BASE
+        session.ti_command("W").delay += WRITE_DQ_DQS_DELAY
+        session.ti_command("WDQSH").delay += WRITE_DQ_DQS_DELAY
+        session.ti_command("WDQSL").delay += WRITE_DQ_DQS_DELAY
+
+        cases.append(session, X, trace_enable=trace_enable)
+    # --- Execute and report scan ---
+    results = sr_run_scan_cases(
+        cases,
+        testflow_num=testflow_num,
+        workers=workers,
+    )
+    X_PASS_WINDOW = sr_pass_window(XR, results)
+    sr_print_scan_grid(results, XR, x_name="X")
+
+    print()
+    print(X_PASS_WINDOW)
+    sr_print_test_stop(test_name)
+
+def Mrr2_Status(context: TiContext,
                 test_name:str,
                 pattern_name:str,
                 testflow_num:int=0,
                 x_range:str='',
                 y_range:str='',
-                trace_enable:bool=True,
-                print_samples:bool=False):
-    """Run one trained Serial pass while sweeping timing base offsets."""
+                trace_enable:bool=False,
+                print_samples:bool=False,
+    workers:int=1):
+    """Sweep command delay while checking MR2 status behavior."""
 
-    context.import_vars("Python/pat/training/chip.py")
+    # --- Inputs and trained values ---
+    XR = sr_parse_range(x_range, Period)
 
-    xr = parse_range(x_range)
-    yr = parse_range(y_range)
+    pattern = sr_load_pattern(pattern_name)
 
-    pattern = PatternRuntime(pattern_name)
+    sr_print_test_start(test_name)
+    context.ti_import_vars("Python/pat/training/chip.py")
+    READ_DQS_BASE = context.ti_get("READ_DQS_BASE", Time.PS)
+    READ_DQ_BASE = context.ti_get("READ_DQ_BASE", Time.PS)
+    RL = Period(35)
+    WL = Period(35)
+    Reg = pattern.Reg
+    Reg.RL = RL
+    Reg.WL = WL
 
-    print("--- ATE Test Start ---")
-    x_pass_window = []
+    # --- Build MR2 status scan configurations ---
+    cases = TiScanCases(test_name)
+    for X in XR:
+        session = pattern.ti_create_scan_session()
+        session.ti_timing("TS1").stb.variant("DQS").base = READ_DQS_BASE
+        session.ti_timing("TS1").stb.variant("DQ").base = READ_DQ_BASE
+        sr_read_write_delay(session, RL, WL)
+        session.ti_command("R").delay += X
+        session.ti_command("RDQSL").delay += X
+        session.ti_command("RDQSH").delay += X
+        session.ti_command("MRR").delay += X
 
-    read_dqs_base = context.read_dqs_base
-    read_dq_base = context.read_dq_base
+        cases.append(session, X, trace_enable=trace_enable)
+    # --- Execute scan ---
+    results = sr_run_scan_cases(
+        cases,
+        testflow_num=testflow_num,
+        workers=workers,
+    )
+    # --- Analyze status window ---
+    X_PASS_WINDOW = sr_pass_window(XR, results)
+    sr_print_scan_grid(results, XR, x_name="X")
 
-    rl = 35
-    wl = 35
+    print()
 
-    def rotate_right8(value):
-        return ((value & 1) << 7) | (value >> 1)
+    context["XT"] = sr_window_center(X_PASS_WINDOW).count
 
+    print(f"X = {context.ti_get('XT', int)}\n")
+
+    sr_print_test_stop(test_name)
+
+def MRR(context: TiContext,
+                test_name:str,
+                pattern_name:str,
+                testflow_num:int=0,
+                x_range:str='',
+                y_range:str='',
+                trace_enable:bool=False,
+                print_samples:bool=False,
+    workers:int=1):
+    """Sweep MRR timing and print each mode-register result window."""
+
+    # --- Inputs and trained values ---
+    context.ti_import_vars("Python/pat/training/chip.py")
+
+    XR = sr_parse_range(x_range, Period)
+    YR = sr_parse_range(y_range, int)
+
+    pattern = sr_load_pattern(pattern_name)
+
+    sr_print_test_start(test_name)
+    READ_DQS_BASE = context.ti_get("READ_DQS_BASE", Time.PS)
+    READ_DQ_BASE = context.ti_get("READ_DQ_BASE", Time.PS)
+
+    RL = Period(35)
+    WL = Period(35)
+    Reg = pattern.Reg
+    Reg.RL = RL
+    Reg.WL = WL
+
+    # --- Build MRR timing and register scan configurations ---
+    cases = TiScanCases()
+    for Y in YR:
+        for X in XR:
+            Reg.TEMP = Y
+            session = pattern.ti_create_scan_session()
+            session.ti_timing("TS1").stb.variant("DQS").close = True
+            session.ti_timing("TS1").stb.variant("DQ").base = READ_DQ_BASE
+            sr_read_write_delay(session, RL, WL)
+            session.ti_command("R").delay += X
+
+            cases.append(session, X, Y, trace_enable)
+
+    # --- Execute and report scan ---
+    results = sr_run_scan_cases(
+        cases,
+        testflow_num=testflow_num,
+        workers=workers,
+    )
+    sr_print_scan_grid(
+        results,
+        XR,
+        YR,
+        y_name="MR",
+        print_samples=print_samples,
+    )
+
+    sr_print_test_stop(test_name)
+
+def MR3(context: TiContext,
+                test_name:str,
+                pattern_name:str,
+                testflow_num:int=0,
+                x_range:str='',
+                y_range:str='',
+                trace_enable:bool=False,
+    print_samples:bool=False):
+    """Validate the rotating MR3 payload with a precomputed DEQUE."""
+
+    # --- Inputs and trained values ---
+    context.ti_import_vars("Python/pat/training/chip.py")
+
+    XR = sr_parse_range(x_range, int)
+    YR = sr_parse_range(y_range, int)
+
+    pattern = sr_load_pattern(pattern_name)
+
+    sr_print_test_start(test_name)
+    READ_DQS_BASE = context.ti_get("READ_DQS_BASE", Time.PS)
+    READ_DQ_BASE = context.ti_get("READ_DQ_BASE", Time.PS)
+
+    RL = Period(35)
+    WL = Period(35)
+    Reg = pattern.Reg
+    Reg.RL = RL
+    Reg.WL = WL
+
+    # --- Prepare expected rotating payload ---
     deque = []
     payload = 0x5A
     for _ in range(32):
         deque.extend((payload >> bit) & 1 for bit in range(8))
-        payload = rotate_right8(payload)
+        payload = sr_rotate_right8(payload)
 
-    session = pattern.create_session(
-        wave_name=pattern.wave_path(f"MR3.vcd"),
+    # --- Create and configure one ATE session ---
+    session = pattern.ti_create_session(
+        wave_name=pattern.ti_wave_path(f"MR3.vcd"),
         trace_enable=trace_enable
     )
-    session.timing("TS1").stb.variant("DQS").base = read_dqs_base
-    session.timing("TS1").stb.variant("DQ").base = read_dq_base
-    RW_DQ_DQS_DELAY(session, rl, wl)
+    session.ti_timing("TS1").stb.variant("DQS").base = READ_DQS_BASE
+    session.ti_timing("TS1").stb.variant("DQ").base = READ_DQ_BASE
+    sr_read_write_delay(session, RL, WL)
 
-    compare_results = session.run(testflow_num, RL=rl, WL=wl, DEQUE=deque)
+    # --- Execute and report ---
+    compare_results = session.ti_run(testflow_num, DEQUE=deque)
 
-    session.print_samples(print_samples)
-    session.print_compare_results()
+    session.ti_print_samples(print_samples)
+    session.ti_print_compare_results()
 
     print()
-    print("--- ATE Test Stop ---")
+    sr_print_test_stop(test_name)

@@ -16,13 +16,19 @@ the serial frame shape, while DQ carries payload bits.
 ```text
 Socket
   -> DUT.v
-    -> Chip
+    -> ChipAnalogWrapper
       -> Dram
 ```
 
-Main RTL file:
+`Chip.v` remains the clean DUT-facing module with only digital input/output
+pins. `ChipAnalogWrapper.v` is the pin-level simulation shell that accepts
+ATE/POWER/electrical infrastructure and connects those signals to `Dram`.
+
+Main RTL files:
 
 ```text
+Verilog/dut/Chip.v
+Verilog/dut/ChipAnalogWrapper.v
 Verilog/dut/Dram.v
 ```
 
@@ -49,10 +55,10 @@ The extension uses the existing `Chip` pins.
 
 | Name | Width | Meaning |
 |---|---:|---|
-| `DQ_IE` | 1 | Write-data input window is open |
+| `DQ_IE` | 1 | Write receiver is ready/armed |
 | `DQ_TX_BIT` | 1 | Read-side serial payload bit |
 | `DQS_TX_BIT` | 1 | Read-side serial strobe/frame bit |
-| `DQ_OE` | 1 | Read frame start pulse |
+| `DQ_OE` | 1 | Read/MRR output-enable window including TX skew |
 | `DQ_OUT_VALID` | 1 | Read frame is active |
 
 ### Socket Bit Mapping
@@ -63,19 +69,19 @@ Current pin-level mapping:
 |---|---:|---|
 | IN | 0 | `CLK` |
 | IN | 1 | `RST_N` |
-| IN | 2 | `DQS_RX_BIT` |
-| IN | 3 | `R` |
-| IN | 4 | `W` |
-| IN | 5:12 | `ADDR` |
-| IN | 13 | `DQ_RX_BIT` |
+| IN | 2 | `R` |
+| IN | 3 | `W` |
+| IN | 4:11 | `ADDR` |
+| IN | 12 | `DQ_RX_BIT` |
+| IN | 13 | `DQS_RX_BIT` |
 | IN | 14:21 | `MR_IN` |
 | IN | 22 | `MRW` |
 | IN | 23 | `MRR` |
 | OUT | 0 | `DQ_IE` |
 | OUT | 1 | `DQ_TX_BIT` |
-| OUT | 2 | `DQ_OE` |
-| OUT | 3 | `DQ_OUT_VALID` |
-| OUT | 4 | `DQS_TX_BIT` |
+| OUT | 2 | `DQS_TX_BIT` |
+| OUT | 3 | `DQ_OE` |
+| OUT | 4 | `DQ_OUT_VALID` |
 
 ## Address Map
 
@@ -120,6 +126,7 @@ MR1/WL      = 8
 MR2.ERROR   = 0
 MR2 last-operation status bits = 0
 MR4/DQ_TURN = 24
+MR5/VREF_CODE = 200
 all request pipelines are cleared
 write window is closed
 RX/TX DQS frame state machines are idle
@@ -134,8 +141,10 @@ Memory array contents are not explicitly initialized.
 | `MR0` | R/W | Read latency `RL` |
 | `MR1` | R/W | Write latency `WL` |
 | `MR2` | R/W-special | Status register |
-| `MR3` | Read-only | Fixed ID register, returns `8'h5A` |
+| `MR3` | Read-only | Rotating ID register, first returns `8'h5A` |
 | `MR4` | R/W | Minimum DQ command spacing for `R/W/MRR` |
+| `MR5` | R/W | DQ/DQS Vref code, derived from VDDQ |
+| `MR6` | R-only | Static TX skew summary `{TX_DQS_SKEW, TX_DQ_SKEW}` |
 | Other | Read returns `0`, invalid write sets error |
 
 ## MR0: Read Latency
@@ -158,7 +167,7 @@ Read command behavior:
 ```text
 R ADDR=x
 after RL clock cycles:
-    DQ_OE pulses for one cycle
+    DQ_OE covers the transmit frame and the configured TX skew tail
     Dram outputs one DQS/DQ serial read frame
 ```
 
@@ -182,7 +191,7 @@ Write command behavior:
 ```text
 W ADDR=x
 after WL clock cycles:
-    DQ_IE opens for a 14-cycle write frame window
+    DQ_IE asserts and the write receiver waits for a DQS frame
 ```
 
 During the write window:
@@ -193,6 +202,9 @@ Dram samples DQ_RX_BIT during the 8 middle DQS cycles
 if the full frame is legal:
     array[x] = sampled byte
 ```
+
+`DQ_IE` remains asserted while the receiver waits and while the frame is being
+received. A complete frame or the 64-cycle receiver timeout ends the request.
 
 The payload is LSB-first: the first sampled DQ bit becomes `array[x][0]`.
 
@@ -243,12 +255,15 @@ MRW ADDR=2, MR_IN[3]=0 -> keep sticky error flag unchanged
 
 Other bits in `MR_IN` are ignored for `MR2`.
 
-## MR3: Fixed ID Register
+## MR3: Rotating ID Register
 
-`MR3` is read-only and returns a fixed ID value.
+`MR3` is read-only. The first `MRR ADDR=3` returns `8'h5A`. After each MR3
+read is accepted, the stored ID rotates right by one bit, with bit 0 wrapping
+to bit 7. The next read therefore returns `8'h2D`, then continues rotating.
 
 ```text
-MRR ADDR=3 -> returns 8'h5A
+first  MRR ADDR=3 -> returns 8'h5A
+second MRR ADDR=3 -> returns 8'h2D
 ```
 
 Expected DQS/DQ output payload:
@@ -312,6 +327,53 @@ cycle, all are rejected and `MR2.ERROR` is set.
 Rejected commands do not enter the read, write, or mode-register-read
 pipelines. `MRW` does not use the DQ data path and is not blocked by MR4.
 
+## MR5: DQ/DQS Vref Code
+
+`MR5` controls the DQ/DQS input comparator threshold as a percentage of the
+external `VDDQ` power rail.
+
+```text
+effective_code = min(MR5, 200)
+VREF_DQ = VREF_DQS = VDDQ_UV * effective_code / 200
+
+MR5 = 0   -> 0% VDDQ
+MR5 = 100 -> 50% VDDQ
+MR5 = 200 -> 100% VDDQ
+MR5 > 200 -> 100% VDDQ
+```
+
+Reset value:
+
+```text
+MR5 = 200
+```
+
+`MRW ADDR=5` updates the Vref code. `MRR ADDR=5` returns the stored code.
+
+## MR6: Static TX Skew Summary
+
+DQ/DQS skew is now a DUT implementation property, not a normal mode-register
+training knob. RTL parameters provide the defaults:
+
+```text
+RX_DQS_SKEW = 0
+RX_DQ_SKEW  = 1
+TX_DQS_SKEW = 2
+TX_DQ_SKEW  = 0
+```
+
+C++ `AteBench` may override these values for bottom-up validation through
+`DutSkewConfig`. Python pattern/runtime does not expose this override yet.
+
+`MR6` is read-only and returns the TX summary:
+
+```text
+MR6[7:4] = TX_DQS_SKEW
+MR6[3:0] = TX_DQ_SKEW
+```
+
+`MRW ADDR=6` is illegal and sets the sticky MR2 error flag.
+
 ## Illegal Mode-Register Writes
 
 Valid mode-register write addresses:
@@ -321,12 +383,13 @@ Valid mode-register write addresses:
 1: MR1/WL
 2: MR2 status clear
 4: MR4 DQ command turnaround
+5: MR5 DQ/DQS Vref code
 ```
 
 Any other `MRW` address is illegal.
 
 ```text
-MRW ADDR not in {0,1,2,4} -> MR2.ERROR = 1
+MRW ADDR not in {0,1,2,4,5} -> MR2.ERROR = 1
 ```
 
 The error bit is sticky until cleared through:
@@ -347,7 +410,7 @@ Behavior:
 
 ```text
 cycle R:       read request enters pipeline
-cycle R+RL:    DQ_OE = 1 for one cycle
+cycle R+RL:    DQ_OE = 1 before the pin-level frame becomes visible
                DQ_OUT_VALID = 1
                DQS_TX_BIT starts frame bit 0
 cycle R+RL+n:  DQS/DQ frame continues for n = 1..13
@@ -363,8 +426,13 @@ frame index:  00 01 02 03 | 04 05 06 07 08 09 10 11 | 12 13
 DQS_TX_BIT:    0  0  1  1 |  0  1  0  1  0  1  0  1 |  0  0
 DQ_TX_BIT:     0  0  0  0 | d0 d1 d2 d3 d4 d5 d6 d7 |  0  0
 DQ_OUT_VALID:  1  1  1  1 |  1  1  1  1  1  1  1  1 |  1  1
-DQ_OE:         1  0  0  0 |  0  0  0  0  0  0  0  0 |  0  0
+DQ_OE:         1  1  1  1 |  1  1  1  1  1  1  1  1 |  1  1
 ```
+
+`DQ_OE` is wider than the raw 14-cycle frame. Its duration is
+`14 + max(TX_DQ_SKEW, TX_DQS_SKEW) + 2` DUT clocks; the final two
+clocks cover the registered raw-to-pipe and pipe-to-pin stages. It deasserts
+when the slowest output has completed its postamble and returned to idle.
 
 `d0` is payload bit 0, so the payload is transmitted LSB-first.
 
@@ -374,7 +442,7 @@ Read timing sketch:
 CLK cycle:      t0       ...       t0+RL      t0+RL+1 ... t0+RL+13
 R:              1        ...       0          0           0
 ADDR:           x        ...       -          -           -
-DQ_OE:          0        ...       1          0           0
+DQ_OE:          0        ...       1          1       ... 0 after skew tail
 DQ_OUT_VALID:   0        ...       1          1           1
 DQS_TX_BIT:     0        ...       0          0/1 frame   0
 DQ_TX_BIT:      0        ...       0          payload     0
@@ -395,7 +463,7 @@ Behavior:
 
 ```text
 cycle W:       write request enters pipeline
-cycle W+WL:    write window opens
+cycle W+WL:    write receiver becomes ready
                DQ_IE = 1
 next cycles:   Dram searches for DQS_RX_BIT preamble 0011
 after preamble:
@@ -418,18 +486,20 @@ DQ_RX_BIT:    x  x  x  x | d0 d1 d2 d3 d4 d5 d6 d7 |  x  x
 Write timing sketch:
 
 ```text
-CLK cycle:     t0       ...       t0+WL      t0+WL+1 ... t0+WL+13
-W:             1        ...       0          0           0
-ADDR:          x        ...       -          -           -
-DQ_IE:         0        ...       1          1           1
-DQS_RX_BIT:    0        ...       0          frame       0
-DQ_RX_BIT:     0        ...       x          payload     x
-array write:   -        ...       -          -           commit after postamble
+CLK cycle:     t0       ...       t0+WL      ...  frame start ... frame end
+W:             1        ...       0          ...      0          0
+ADDR:          x        ...       -          ...      -          -
+DQ_IE:         0        ...       1          ...      1          0
+DQS_RX_BIT:    1        ...       1          ...     frame       1
+DQ_RX_BIT:     1        ...       x          ...    payload      x
+array write:   -        ...       -          ...      -         commit
 ```
 
-The write window is 14 cycles after it opens. If the DQS frame is not observed
-inside that window, or if the middle/postamble sequence is invalid, the frame is
-discarded and memory is not updated.
+After `DQ_IE` asserts, the receiver permits up to 64 cycles for a frame. This
+supports event-driven functional benches that wait for `DQ_IE` before driving
+DQS/DQ. The frame itself remains exactly 14 cycles. An invalid frame is
+discarded and sets the sticky MR2 error bit; a timeout closes the receiver
+without updating memory.
 
 ## Suggested Validation Scenarios
 

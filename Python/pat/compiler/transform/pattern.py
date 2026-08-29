@@ -91,9 +91,7 @@ def row_to_ir(row: Row, registers: RegisterSet, functions: frozenset[str] = froz
                     ).transform(parsed)
                 )
             except Exception as exc:
-                if "DEQUE" in cmd or "POP" in cmd:
-                    raise RuntimeError(f"Unsupported CMD expression {cmd!r}: {exc}") from exc
-                ir_list.append(f"UNSUPPORTED_CMD({cmd!r})  err={exc}")
+                raise RuntimeError(f"Unsupported CMD expression {cmd!r}: {exc}") from exc
 
     return ir_list
 
@@ -103,18 +101,29 @@ def compile_pattern_ir(pat_path: str, use_paths=None, include_paths=None):
     command_defs = []
     ir_list = []
     raw_pat = read_pat(pat_path=pat_path, use_paths=use_paths, include_paths=include_paths)
-    registers = raw_pat.registers or RegisterSet.legacy()
+    registers = RegisterSet.legacy()
 
     if not raw_pat.testflows and not raw_pat.def_lines and not raw_pat.rows:
-        return [], [], [], None, (), registers, raw_pat.functions
+        return [], [], [], None, (), (), None, None, registers, raw_pat.functions
 
     if raw_pat.use_path is None:
         raise RuntimeError("Pattern must declare USE <schema_dir> before BEGIN")
 
     compiled_defs = compile_schema(raw_pat.use_path)
+    registers = compiled_defs.registers
     schema_module_name = compiled_defs.module_name
     command_defs.extend(compiled_defs.command_defs)
     timing_names = compiled_defs.timing_names
+    voltage_names = compiled_defs.voltage_names
+    voltage_name = raw_pat.voltage_name
+    if voltage_name is None:
+        raise RuntimeError("Pattern must declare VOLTAGE = VSx before BEGIN")
+    if voltage_name not in voltage_names:
+        raise RuntimeError(
+            f"Pattern selects undefined VOLTAGE set {voltage_name}; "
+            f"available: {', '.join(voltage_names) or 'none'}"
+        )
+    voltage_mode = compiled_defs.voltage_modes[voltage_name]
 
     for def_line in raw_pat.def_lines:
         raise RuntimeError("Inline DEF is no longer supported. Use USE <schema_dir> instead.")
@@ -127,4 +136,15 @@ def compile_pattern_ir(pat_path: str, use_paths=None, include_paths=None):
     if not testflow_list:
         raise NoTestflowError(str(pat_path))
 
-    return testflow_list, command_defs, ir_list, schema_module_name, timing_names, registers, raw_pat.functions
+    return (
+        testflow_list,
+        command_defs,
+        ir_list,
+        schema_module_name,
+        timing_names,
+        voltage_names,
+        voltage_name,
+        voltage_mode,
+        registers,
+        raw_pat.functions,
+    )

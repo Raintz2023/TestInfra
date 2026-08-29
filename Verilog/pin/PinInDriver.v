@@ -8,10 +8,12 @@ module PinInDriver #(
 
     input  wire               DRIV,
     input  wire [WIDTH-1:0]   DRIV_IN,
+    input  wire [WIDTH-1:0]   DRIV_RETURN_IN,
     input  wire [DELAY_W-1:0] DRIV_DELAY,
     input  wire [DELAY_W-1:0] DRIV_DURATION,
-
+    /* verilator lint_off SYNCASYNCNET */
     output reg  [WIDTH-1:0]   DRIV_OUT,
+    /* verilator lint_on SYNCASYNCNET */
     output reg                DRIV_ALERT
 );
 
@@ -21,6 +23,7 @@ module PinInDriver #(
     reg [31:0] ev_due   [0:DEPTH-1];
     reg [31:0] ev_until [0:DEPTH-1];
     reg [WIDTH-1:0] ev_data [0:DEPTH-1];
+    reg [WIDTH-1:0] ev_return_data [0:DEPTH-1];
     integer i;
     integer free_idx;
 
@@ -35,6 +38,7 @@ module PinInDriver #(
                 ev_due[i] <= 32'd0;
                 ev_until[i] <= 32'd0;
                 ev_data[i] <= {WIDTH{1'b0}};
+                ev_return_data[i] <= {WIDTH{1'b0}};
             end
 
         end else begin
@@ -59,13 +63,14 @@ module PinInDriver #(
                         ev_due[free_idx] <= phase_counter + DRIV_DELAY;
                         ev_until[free_idx] <= phase_counter + DRIV_DELAY + DRIV_DURATION;
                         ev_data[free_idx] <= DRIV_IN;
+                        ev_return_data[free_idx] <= DRIV_RETURN_IN;
                     end
                 end
             end
 
             for (i = 0; i < DEPTH; i = i + 1) begin
                 if (ev_valid[i] && (ev_until[i] == phase_counter)) begin
-                    DRIV_OUT <= {WIDTH{1'b0}};
+                    DRIV_OUT <= ev_return_data[i];
                     ev_valid[i] <= 1'b0;
                     ev_active[i] <= 1'b0;
                 end else if (ev_valid[i]) begin

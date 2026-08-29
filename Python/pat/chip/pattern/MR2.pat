@@ -1,22 +1,5 @@
 USE chip
-
-        REGISTER  {
-                DEFINE {
-                    8'LOOP[0-3]    // ROLE: LOOP, unsigned
-                    8'ADDR[0-1]    // ROLE: ARG, unsigned
-                    8'X            // ROLE: ARG, signed
-                    8'Y            // ROLE: ARG, signed
-                    8'Z[0-1]       // ROLE: ARG, unsigned
-                    8'TEMP         // ROLE: ARG, signed
-                    1'DATA         // ROLE: EXPECT, unsigned
-                }
-                ALIAS {
-                    Z_0 = RL
-                    Z_1 = WL
-                    ADDR_0 = ARRAY_ADDR
-                    ADDR_1 = MR_ADDR
-                }
-        }
+VOLTAGE = VS0
 
 BEGIN
     <0> START

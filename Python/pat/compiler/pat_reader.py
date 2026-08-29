@@ -6,14 +6,13 @@ from Python.pat.compiler.types import *
 import re
 from dataclasses import dataclass
 
-from Python.pat.compiler.registers import RegisterSet, parse_register_block
-
 # 例：<1> START -> TEST1 -> TEST2 -> STOP   // comment
 _RE_TESTFLOW_LINE = re.compile(r'^\s*<\s*(\d+)\s*>\s*(.+?)\s*$')
 _RE_TESTFLOW_BLOCK_START = re.compile(r'^\s*<\s*(\d+)\s*>\s*START\s*$')
 _RE_VALID_NODE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')  # 你可按需放宽，比如允许 '-' 等
 _RE_INCLUDE_LINE = re.compile(r'^\s*INCLUDE\s+(.+?)\s*$')
 _RE_USE_LINE = re.compile(r'^\s*USE\s+(.+?)\s*$')
+_RE_VOLTAGE_LINE = re.compile(r'^\s*VOLTAGE\s*=\s*(VS[A-Za-z0-9_]*)\s*$')
 _RE_REGISTER_START = re.compile(r'^\s*REGISTER\s*\{\s*(.*?)\s*$')
 _RE_FUNCTION_START = re.compile(r'^\s*FUNCTION\s*\{\s*(.*?)\s*$')
 _RE_CTRL_ONLY = re.compile(r'^(?:[A-Z][A-Z0-9_]*#\s*)?(?:NOP|RTN|FOR-[A-Z0-9_]+|GOTO-[A-Z0-9_]+\s+[A-Z][A-Z0-9_]*)$')
@@ -25,7 +24,7 @@ class RawPat:
     def_lines: list[str]
     rows: list[Row]
     use_path: Path | None = None
-    registers: RegisterSet | None = None
+    voltage_name: str | None = None
     functions: frozenset[str] = frozenset()
 
 
@@ -125,7 +124,7 @@ def _expand_include_lines(pat_path: str | Path,
 
 def _load_compile_lines(pat_path: str | Path,
                         use_paths: list[str | Path] | tuple[str | Path, ...] | None = None,
-                        include_paths: list[str | Path] | tuple[str | Path, ...] | None = None) -> tuple[list[SourceLine], Path | None, str | None, frozenset[str]]:
+                        include_paths: list[str | Path] | tuple[str | Path, ...] | None = None) -> tuple[list[SourceLine], Path | None, frozenset[str], str | None]:
     path = Path(pat_path).resolve()
     if not path.is_file():
         raise FileNotFoundError(f"Pattern file not found: {path}")
@@ -133,38 +132,10 @@ def _load_compile_lines(pat_path: str | Path,
     compile_lines: list[SourceLine] = []
     state = "before_begin"
     use_path: Path | None = None
-    register_lines: list[str] = []
-    register_depth = 0
-    seen_register = False
+    voltage_name: str | None = None
     function_lines: list[str] = []
     function_depth = 0
     seen_function = False
-
-    def consume_register_text(text: str, source: SourceLine) -> bool:
-        nonlocal register_depth
-        segment: list[str] = []
-        for idx, ch in enumerate(text):
-            if ch == "{":
-                register_depth += 1
-                segment.append(ch)
-            elif ch == "}":
-                register_depth -= 1
-                if register_depth < 0:
-                    raise RuntimeError(f"Unexpected REGISTER close brace: {source.path}:{source.lineno}")
-                if register_depth == 0:
-                    before_close = "".join(segment).strip()
-                    if before_close:
-                        register_lines.append(before_close)
-                    if text[idx + 1:].strip():
-                        raise RuntimeError(f"Unexpected text after REGISTER block: {source.path}:{source.lineno}")
-                    return True
-                segment.append(ch)
-            else:
-                segment.append(ch)
-        raw_segment = "".join(segment).strip()
-        if raw_segment:
-            register_lines.append(raw_segment)
-        return False
 
     def consume_function_text(text: str, source: SourceLine) -> bool:
         nonlocal function_depth
@@ -206,18 +177,25 @@ def _load_compile_lines(pat_path: str | Path,
                     raise RuntimeError(f"Duplicate USE detected: {path}:{lineno}")
                 use_path = _resolve_use_path(path, use_match.group(1), use_paths)
                 continue
+            voltage_match = _RE_VOLTAGE_LINE.match(raw)
+            if voltage_match is not None:
+                if use_path is None:
+                    raise RuntimeError(f"VOLTAGE must appear after USE: {path}:{lineno}")
+                if seen_function:
+                    raise RuntimeError(
+                        f"VOLTAGE must appear before FUNCTION: {path}:{lineno}"
+                    )
+                if voltage_name is not None:
+                    raise RuntimeError(f"Duplicate VOLTAGE selection: {path}:{lineno}")
+                voltage_name = voltage_match.group(1)
+                continue
             register_match = _RE_REGISTER_START.match(raw)
             if register_match is not None:
-                if seen_register:
-                    raise RuntimeError(f"Duplicate REGISTER detected: {path}:{lineno}")
-                seen_register = True
-                tail = register_match.group(1).strip()
-                register_depth = 1
-                if consume_register_text(tail, source_line):
-                    state = "before_begin"
-                    continue
-                state = "in_register"
-                continue
+                raise RuntimeError(
+                    f"REGISTER is schema-level; move it to "
+                    f"{use_path / 'reg.pat' if use_path else '<schema>/reg.pat'}: "
+                    f"{path}:{lineno}"
+                )
             function_match = _RE_FUNCTION_START.match(raw)
             if function_match is not None:
                 if seen_function:
@@ -231,13 +209,10 @@ def _load_compile_lines(pat_path: str | Path,
                 state = "in_function"
                 continue
             if raw != "BEGIN":
-                return [], use_path, None, frozenset()
+                return [], use_path, frozenset(), voltage_name
+            if voltage_name is None:
+                raise RuntimeError(f"Pattern must declare VOLTAGE = VSx before BEGIN: {path}:{lineno}")
             state = "in_body"
-            continue
-
-        if state == "in_register":
-            if consume_register_text(raw, source_line):
-                state = "before_begin"
             continue
 
         if state == "in_function":
@@ -256,8 +231,14 @@ def _load_compile_lines(pat_path: str | Path,
 
         if _RE_USE_LINE.match(raw) is not None:
             raise RuntimeError(f"USE must appear before BEGIN: {path}:{lineno}")
+        if _RE_VOLTAGE_LINE.match(raw) is not None:
+            raise RuntimeError(f"VOLTAGE must appear before BEGIN: {path}:{lineno}")
         if _RE_REGISTER_START.match(raw) is not None:
-            raise RuntimeError(f"REGISTER must appear before BEGIN: {path}:{lineno}")
+            raise RuntimeError(
+                f"REGISTER is schema-level; move it to "
+                f"{use_path / 'reg.pat' if use_path else '<schema>/reg.pat'}: "
+                f"{path}:{lineno}"
+            )
         if _RE_FUNCTION_START.match(raw) is not None:
             raise RuntimeError(f"FUNCTION must appear before BEGIN: {path}:{lineno}")
 
@@ -270,15 +251,13 @@ def _load_compile_lines(pat_path: str | Path,
         compile_lines.extend(_expand_include_lines(include_path, (path,), include_paths))
 
     if state == "before_begin":
-        return [], use_path, "\n".join(register_lines) if seen_register else None, _parse_function_block(function_lines)
-    if state == "in_register":
-        raise RuntimeError(f"Unclosed REGISTER block: {path}")
+        return [], use_path, _parse_function_block(function_lines), voltage_name
     if state == "in_function":
         raise RuntimeError(f"Unclosed FUNCTION block: {path}")
     if state != "after_end":
         raise PatternEndError(str(path))
 
-    return compile_lines, use_path, "\n".join(register_lines) if seen_register else None, _parse_function_block(function_lines)
+    return compile_lines, use_path, _parse_function_block(function_lines), voltage_name
 
 
 def _parse_function_block(lines: list[str]) -> frozenset[str]:
@@ -470,13 +449,13 @@ def parse_testflow_body_row(line: str) -> tuple[list[Row], bool]:
 def read_pat(pat_path: str | Path,
              use_paths: list[str | Path] | tuple[str | Path, ...] | None = None,
              include_paths: list[str | Path] | tuple[str | Path, ...] | None = None):
-    compile_lines, use_path, register_text, functions = _load_compile_lines(pat_path, use_paths, include_paths)
+    compile_lines, use_path, functions, voltage_name = _load_compile_lines(pat_path, use_paths, include_paths)
     raw_pat = RawPat(
         testflows=[],
         def_lines=[],
         rows=[],
         use_path=use_path,
-        registers=parse_register_block(register_text),
+        voltage_name=voltage_name,
         functions=functions,
     )
     in_testflow = False

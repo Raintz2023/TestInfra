@@ -1,0 +1,26 @@
+?start: voltage_def
+
+voltage_def: "VOLTAGE" voltage_set+ "END"
+           | "VOLTAGE" "{" voltage_set+ "}"
+
+voltage_set: SET_NAME "{" vdc_spec voltage_entry+ "}" -> analog_voltage_set
+           | SET_NAME "{" "@digital" "}" -> digital_voltage_set
+
+vdc_spec: "VDC" ":" VOLTAGE_LITERAL
+voltage_entry: NAME "{" voltage_variant+ "}"
+voltage_variant: "@" VARIANT_NAME "{" voltage_field ("," voltage_field)* ","? "}"
+voltage_field: FIELD_NAME ":" voltage_value
+
+?voltage_value: VOLTAGE_LITERAL -> absolute_voltage
+              | RATIO_LITERAL   -> vdc_ratio
+
+FIELD_NAME: /[A-Za-z_][A-Za-z0-9_]*/
+VARIANT_NAME: /[A-Za-z_][A-Za-z0-9_]*/
+NAME: /[A-Za-z_][A-Za-z0-9_]*/
+SET_NAME: /VS[A-Za-z0-9_]*/
+
+VOLTAGE_LITERAL: /-?[0-9]+(?:\.[0-9]+)?(?:UV|MV|V)/
+RATIO_LITERAL: /-?[0-9]+(?:\.[0-9]+)?/
+%import common.WS
+%ignore WS
+%ignore /\/\/[^\n]*/

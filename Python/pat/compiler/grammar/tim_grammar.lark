@@ -5,7 +5,7 @@ timing_block: "TIMING" timing_set+ "END"
 
 timing_set: NAME "{" timing_item (","? timing_item)* ","? "}"
 
-?timing_item: "PRD" ":" UINT     -> period_spec
+?timing_item: "PRD" ":" TIME_UINT -> period_spec
             | nrz_block
             | rz_block
             | rzz_block
@@ -36,28 +36,31 @@ rzz_variant_list: two_edge_variant (","? two_edge_variant)* ","?
 single_edge_variant: VARIANT_NAME "{" single_edge_field_list "}"
 two_edge_variant: VARIANT_NAME "{" two_edge_field_list "}"
 
-?nrz_field: "EDGE" ":" UINT      -> edge_spec
-          | "BASE" ":" SINT      -> base_spec
-          | "OPEN" ":" UINT      -> open_spec
+?nrz_field: "EDGE" ":" time_uint -> edge_spec
+          | "BASE" ":" time_sint -> base_spec
 
-?rz_field: "EDGE_1" ":" UINT     -> edge_1_spec
-         | "EDGE_2" ":" UINT     -> edge_2_spec
-         | "BASE" ":" SINT       -> base_spec
-         | "OPEN" ":" UINT       -> open_spec
+?rz_field: "EDGE_1" ":" time_uint -> edge_1_spec
+         | "EDGE_2" ":" time_uint -> edge_2_spec
+         | "BASE" ":" time_sint   -> base_spec
 
-?rzz_field: "EDGE_1" ":" UINT    -> edge_1_spec
-          | "EDGE_2" ":" UINT    -> edge_2_spec
-          | "BASE" ":" SINT      -> base_spec
-          | "OPEN" ":" UINT      -> open_spec
+?rzz_field: "EDGE_1" ":" time_uint -> edge_1_spec
+          | "EDGE_2" ":" time_uint -> edge_2_spec
+          | "BASE" ":" time_sint   -> base_spec
 
-?stb_field: "EDGE" ":" UINT      -> edge_spec
-          | "BASE" ":" SINT      -> base_spec
-          | "OPEN" ":" UINT      -> open_spec
+?stb_field: "EDGE" ":" time_uint -> edge_spec
+          | "BASE" ":" time_sint -> base_spec
+
+?time_uint: TIME_UINT -> absolute_time
+          | RATIO_UINT -> period_ratio
+?time_sint: TIME_SINT -> absolute_time
+          | RATIO_SINT -> period_ratio
 
 NAME: /[A-Z][A-Z0-9_]*/
 VARIANT_NAME: /@[A-Za-z_][A-Za-z0-9_]*/
-UINT: /[0-9]+/
-SINT: /-?[0-9]+/
+TIME_UINT: /[0-9]+(?:\.[0-9]+)?(?:PS|NS|US|MS|S)/
+TIME_SINT: /-?[0-9]+(?:\.[0-9]+)?(?:PS|NS|US|MS|S)/
+RATIO_UINT: /[0-9]+(?:\.[0-9]+)?/
+RATIO_SINT: /-?[0-9]+(?:\.[0-9]+)?/
 
 %import common.WS
 %ignore WS

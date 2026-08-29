@@ -72,10 +72,47 @@ struct SampleRecord {
     uint32_t sample_mask = 0;
     // Raw packed SAMP_OUT value captured from the socket.
     uint32_t raw = 0;
+    // Output pins whose voltage was outside the indeterminate VOL/VOH window.
+    uint32_t valid_mask = 0;
     // TOP_DATA value that was present when this sample was captured.
     uint32_t top_data_snapshot = 0;
     // Compare rule that was active when this sample was requested.
     CompareSpec compare_spec = CompareSpec{};
+};
+
+struct AteInputVoltageConfig {
+    uint32_t vil_uv = 0;
+    uint32_t vih_uv = 1'200'000;
+};
+
+struct AteOutputVoltageConfig {
+    bool enabled = false;
+    uint32_t vol_uv = 300'000;
+    uint32_t voh_uv = 900'000;
+};
+
+// Verification-only electrical behavior surrounding the digital DUT core.
+// A future analog-aware DUT can internalize these values and hide this API.
+struct DutInputInterfaceConfig {
+    bool enabled = false;
+    uint32_t vref_uv = 600'000;
+    uint32_t rise_step_uv = 100'000;
+    uint32_t fall_step_uv = 100'000;
+};
+
+struct DutOutputInterfaceConfig {
+    bool enabled = false;
+    uint32_t low_uv = 0;
+    uint32_t high_uv = 1'200'000;
+    uint32_t rise_step_uv = 100'000;
+    uint32_t fall_step_uv = 100'000;
+};
+
+struct DutSkewConfig {
+    uint8_t rx_dqs = 0;
+    uint8_t rx_dq = 1;
+    uint8_t tx_dqs = 2;
+    uint8_t tx_dq = 0;
 };
 
 struct InputPinConfig {
@@ -118,7 +155,7 @@ public:
     void set_timing(const TimingSet& timing);
     TimingSet timing() const { return timing_; }
     uint64_t phase() const { return phase_; }
-    uint32_t phase_in_period() const { return phase_in_period_; }
+    uint64_t phase_in_period() const { return phase_in_period_; }
 
     // Common external APIs: vector-row waveform binding. Pins get their
     // waveform behavior from schema/configuration, not from special pin names.
@@ -172,6 +209,30 @@ public:
                                   int width,
                                   uint32_t expected,
                                   uint32_t pin_delay = 0);
+
+    // Low-level voltage model. These APIs intentionally remain C++-only until
+    // the Verilog/C++ behavior has been validated independently of the DSL.
+    void configure_ate_input_voltage_pin(int pin, const AteInputVoltageConfig& config);
+    void configure_ate_input_voltage_field(int lsb, int width, const AteInputVoltageConfig& config);
+    void configure_ate_output_voltage_pin(int pin, const AteOutputVoltageConfig& config);
+    void configure_ate_output_voltage_field(int lsb, int width, const AteOutputVoltageConfig& config);
+    void set_analog_mode(bool enabled);
+    bool analog_mode() const { return analog_mode_; }
+    void configure_dut_input_interface_pin(int pin, const DutInputInterfaceConfig& config);
+    void configure_dut_input_interface_field(int lsb, int width, const DutInputInterfaceConfig& config);
+    void configure_dut_output_interface_pin(int pin, const DutOutputInterfaceConfig& config);
+    void configure_dut_output_interface_field(int lsb, int width, const DutOutputInterfaceConfig& config);
+    void set_dut_vddq_uv(uint32_t uv);
+    void set_dut_vdd_uv(uint32_t uv) { set_dut_vddq_uv(uv); }
+    uint32_t dut_vddq_uv() const { return dut_vddq_uv_; }
+    uint32_t dut_vdd_uv() const { return dut_vddq_uv(); }
+    void set_dut_skew(const DutSkewConfig& config);
+    DutSkewConfig dut_skew() const { return dut_skew_; }
+    uint32_t current_input_voltage_uv(int pin) const;
+    uint32_t current_ate_input_voltage_uv(int pin) const;
+    uint32_t current_output_voltage_uv(int pin) const;
+    std::vector<uint32_t> current_input_voltages_uv() const;
+    std::vector<uint32_t> current_output_voltages_uv() const;
 
     // Common external APIs: clear currently staged drive/sample commands
     // before building the next custom operation.
@@ -268,7 +329,10 @@ private:
     void init_reset_sequence_();
     void clear_driv_();
     void clear_samp_();
-    void set_driv_pin_(int pin, bool value, uint32_t pin_delay = 0, uint32_t hold_duration = 0);
+    void set_driv_pin_(int pin,
+                       bool value,
+                       uint32_t pin_delay = 0,
+                       uint32_t hold_duration = 0);
     void set_driv_field_(int lsb, int width, uint32_t value, uint32_t pin_delay = 0, uint32_t hold_duration = 0);
     void set_samp_pin_(int pin, uint32_t pin_delay = 0);
     void set_samp_field_(int lsb, int width, uint32_t pin_delay = 0);
@@ -292,15 +356,21 @@ private:
     void schedule_alert_event_(uint64_t due_phase);
     void execute_scheduled_alert_events_();
     uint64_t phase_with_offset_(uint64_t row_start_phase,
-                                uint32_t waveform_phase,
-                                int32_t base_phase,
+                                uint64_t waveform_phase,
+                                int64_t base_phase,
                                 const char* label) const;
     const InputPinConfig& input_pin_config_(int lsb, int width) const;
+    bool input_pin_default_value_(int pin) const;
     const OutputPinConfig& output_pin_config_(int lsb, int width) const;
     uint32_t aligned_compare_value_(const CompareSpec& spec) const;
     uint32_t compare_mask_(const CompareSpec& spec) const;
     bool sample_matches_(const SampleRecord& sample) const;
     void validate_compare_spec_(const CompareSpec& spec) const;
+    void apply_voltage_configs_();
+    void validate_ate_input_voltage_config_(const AteInputVoltageConfig& config) const;
+    void validate_ate_output_voltage_config_(const AteOutputVoltageConfig& config) const;
+    void validate_dut_input_interface_config_(const DutInputInterfaceConfig& config) const;
+    void validate_dut_output_interface_config_(const DutOutputInterfaceConfig& config) const;
 
     // Internal helpers: bounds checking.
     void validate_pin_index_(int pin, int pin_count, const char* label) const;
@@ -315,7 +385,7 @@ private:
     uint64_t clock_ = 0;
     uint64_t phase_ = 0;
     uint64_t cycle_ = 0;
-    uint32_t phase_in_period_ = 0;
+    uint64_t phase_in_period_ = 0;
     uint32_t top_data_ = 0;
     TimingSet timing_{};
     uint32_t nrz_drive_mask_ = 0;
@@ -332,6 +402,13 @@ private:
     bool loading_vector_defaults_ = false;
     std::vector<InputPinConfig> input_pin_configs_;
     std::vector<OutputPinConfig> output_pin_configs_;
+    std::array<AteInputVoltageConfig, kPinInCount> ate_input_voltage_configs_{};
+    std::array<AteOutputVoltageConfig, kPinOutCount> ate_output_voltage_configs_{};
+    std::array<DutInputInterfaceConfig, kPinInCount> dut_input_interface_configs_{};
+    std::array<DutOutputInterfaceConfig, kPinOutCount> dut_output_interface_configs_{};
+    uint32_t dut_vddq_uv_ = 1'200'000;
+    bool analog_mode_ = false;
+    DutSkewConfig dut_skew_{};
     std::deque<PendingCompareSpec> pending_compare_specs_;
 
     SampleRecord last_sample_{};

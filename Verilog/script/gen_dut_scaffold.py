@@ -141,12 +141,54 @@ def emit_tim() -> str:
         "TIMING {",
         "    // Starter timing set. Tune the phases for the DUT before real runs.",
         "    TS0 {",
-        "        PRD: 10",
-        "        NRZ { EDGE: 1, BASE: 0 }",
-        "        RZ  { EDGE_1: 2, EDGE_2: 4, BASE: 0 }",
-        "        RZZ { EDGE_1: 2, EDGE_2: 7, BASE: 0 }",
-        "        STB { EDGE: 8, BASE: 0 }",
+        "        PRD: 10PS",
+        "        NRZ { EDGE: 1PS, BASE: 0PS }",
+        "        RZ  { EDGE_1: 2PS, EDGE_2: 4PS, BASE: 0PS }",
+        "        RZZ { EDGE_1: 2PS, EDGE_2: 7PS, BASE: 0PS }",
+        "        STB { EDGE: 8PS, BASE: 0PS }",
         "    }",
+        "}",
+        "",
+    ])
+
+
+def emit_reg() -> str:
+    return "\n".join([
+        "REGISTER {",
+        "    DEFINE {",
+        "        8'LOOP[0-3]    // ROLE: LOOP, unsigned",
+        "        8'ADDR[0-2]    // ROLE: ARG, unsigned",
+        "        8'X            // ROLE: ARG, signed",
+        "        8'Y            // ROLE: ARG, signed",
+        "        8'Z[0-2]       // ROLE: ARG, unsigned",
+        "        8'TEMP         // ROLE: ARG, signed",
+        "        1'DATA         // ROLE: EXPECT, unsigned",
+        "    }",
+        "",
+        "    ALIAS {",
+        "        // ADDR_0 = ARRAY_ADDR",
+        "        // Z_0 = RL",
+        "    }",
+        "",
+        "    DEFAULT {",
+        "        // RL = 0",
+        "    }",
+        "}",
+        "",
+    ])
+
+
+def emit_vol() -> str:
+    return "\n".join([
+        "VOLTAGE {",
+        "    VS0 { @digital }",
+        "",
+        "    // Analog example:",
+        "    // VS1 {",
+        "    //     VDC: 1.2V",
+        "    //     VIN  { @default { VIL: 0,   VIH: 1 } }",
+        "    //     VOUT { @default { VOL: 0.5, VOH: 0.5 } }",
+        "    // }",
         "}",
         "",
     ])
@@ -186,6 +228,8 @@ def main(argv: list[str] | None = None) -> int:
         schema_dir / "soc.pat": write_text(schema_dir / "soc.pat", emit_soc(config), args.force),
         schema_dir / "cmd.pat": write_text(schema_dir / "cmd.pat", emit_cmd(), args.force),
         schema_dir / "tim.pat": write_text(schema_dir / "tim.pat", emit_tim(), args.force),
+        schema_dir / "vol.pat": write_text(schema_dir / "vol.pat", emit_vol(), args.force),
+        schema_dir / "reg.pat": write_text(schema_dir / "reg.pat", emit_reg(), args.force),
     }
 
     for path, status in statuses.items():

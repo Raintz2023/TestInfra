@@ -1,8 +1,9 @@
 module Dram #(
-    parameter integer RX_DQS_SKEW = 0,
-    parameter integer RX_DQ_SKEW  = 1,
-    parameter integer TX_DQS_SKEW = 2,
-    parameter integer TX_DQ_SKEW  = 0
+    parameter VOLTAGE_W = 32,
+    parameter [3:0] RX_DQS_SKEW = 4'd0,
+    parameter [3:0] RX_DQ_SKEW = 4'd1,
+    parameter [3:0] TX_DQS_SKEW = 4'd2,
+    parameter [3:0] TX_DQ_SKEW = 4'd0
 )(
     input  wire       CLK,
     input  wire       RST_N,
@@ -12,19 +13,50 @@ module Dram #(
     input  wire       DQ_RX_BIT,
     input  wire       DQS_RX_BIT,
     input  wire [7:0] MR_IN,
-    input  wire       MRW,   
+    input  wire       MRW,
     input  wire       MRR,
 
     output reg        DQ_IE,
     output reg        DQ_TX_BIT,
     output reg        DQS_TX_BIT,
-    output reg        DQ_OE, 
-    output reg        DQ_OUT_VALID
+    output reg        DQ_OE,
+    output reg        DQ_OUT_VALID,
+
+    input  wire [VOLTAGE_W-1:0] VDDQ_UV,
+    input  wire                 ATE_CLK,
+    input  wire [VOLTAGE_W-1:0] ATE_DQ_RX_UV,
+    input  wire [VOLTAGE_W-1:0] ATE_DQS_RX_UV,
+    input  wire                 DQ_RX_ANALOG_ENABLE,
+    input  wire                 DQS_RX_ANALOG_ENABLE,
+    input  wire [VOLTAGE_W-1:0] DQ_RX_RISE_STEP_UV,
+    input  wire [VOLTAGE_W-1:0] DQ_RX_FALL_STEP_UV,
+    input  wire [VOLTAGE_W-1:0] DQS_RX_RISE_STEP_UV,
+    input  wire [VOLTAGE_W-1:0] DQS_RX_FALL_STEP_UV,
+    input  wire [3:0]           RX_DQS_SKEW_CFG,
+    input  wire [3:0]           RX_DQ_SKEW_CFG,
+    input  wire [3:0]           TX_DQS_SKEW_CFG,
+    input  wire [3:0]           TX_DQ_SKEW_CFG,
+    input  wire                 DQ_TX_ANALOG_ENABLE,
+    input  wire                 DQS_TX_ANALOG_ENABLE,
+    input  wire [VOLTAGE_W-1:0] DQ_TX_LOW_UV,
+    input  wire [VOLTAGE_W-1:0] DQ_TX_HIGH_UV,
+    input  wire [VOLTAGE_W-1:0] DQ_TX_RISE_STEP_UV,
+    input  wire [VOLTAGE_W-1:0] DQ_TX_FALL_STEP_UV,
+    input  wire [VOLTAGE_W-1:0] DQS_TX_LOW_UV,
+    input  wire [VOLTAGE_W-1:0] DQS_TX_HIGH_UV,
+    input  wire [VOLTAGE_W-1:0] DQS_TX_RISE_STEP_UV,
+    input  wire [VOLTAGE_W-1:0] DQS_TX_FALL_STEP_UV,
+    output wire [VOLTAGE_W-1:0] DQ_RX_PIN_UV,
+    output wire [VOLTAGE_W-1:0] DQS_RX_PIN_UV,
+    output wire [VOLTAGE_W-1:0] DQ_TX_PIN_UV,
+    output wire [VOLTAGE_W-1:0] DQS_TX_PIN_UV
 );
     localparam DQ_IDLE  = 1'b1;
     localparam DQS_IDLE = 1'b1;
-    localparam SKEW_DEPTH = 4;
+    localparam [3:0] SKEW_DEPTH = 4'd4;
+    localparam [2:0] SKEW_DEPTH_INDEX = 3'd4;
     localparam [7:0] MR4_MIN_TURNAROUND = 8'd24;
+    localparam [6:0] WRITE_RX_TIMEOUT = 7'd64;
 
     localparam RX_IDLE = 2'd0;
     localparam RX_DATA = 2'd1;
@@ -39,6 +71,7 @@ module Dram #(
     reg       mr2_last_mrw_req;             // Last cycle wrote a mode register
     reg       mr2_last_write_data;          // Last cycle accepted write data into the array
     reg [7:0] mr4_turnaround;               // Minimum DQ command spacing for R/W/MRR
+    reg [7:0] mr5_vref_code;                // 0..200 => 0%..100% VDDQ, >200 clamps to 100%
     reg [7:0] mr3_shift_data;               // Rotating MRR3 pattern, first value is 0x5A
     reg [7:0] dq_turnaround_timer;
     reg [7:0] pipe_out_data  [0:255];       // Out-put data pipeline
@@ -48,7 +81,7 @@ module Dram #(
     reg       pipe_in_valid  [0:255];       // Write requests save pipeline
     reg [7:0] pipe_in_addr   [0:255];       // In-put address pipeline
 
-    reg [3:0] write_window_timer;     // 14-cycle DQS write frame opened WL cycles after W
+    reg [6:0] write_window_timer;     // Receiver-ready timeout after WL expires
     reg [7:0] write_window_addr;
     reg [1:0] rx_state;
     reg [3:0] rx_count;
@@ -61,6 +94,7 @@ module Dram #(
     reg       tx_active;
     reg [3:0] tx_count;
     reg [7:0] tx_payload;
+    reg [4:0] tx_oe_timer;
     reg [SKEW_DEPTH:0] dq_rx_pipe;
     reg [SKEW_DEPTH:0] dqs_rx_pipe;
     reg       dq_tx_raw;
@@ -70,10 +104,21 @@ module Dram #(
     wire      write_window_open;
     wire [7:0] active_write_addr;
     wire [7:0] status_reg;
+    wire      dq_rx_digital;
+    wire      dqs_rx_digital;
     wire      dq_rx_skewed;
     wire      dqs_rx_skewed;
     wire      dq_tx_skewed;
     wire      dqs_tx_skewed;
+    wire [3:0] max_tx_skew;
+    wire [3:0] rx_dq_skew;
+    wire [3:0] rx_dqs_skew;
+    wire [3:0] tx_dq_skew;
+    wire [3:0] tx_dqs_skew;
+    wire [7:0] effective_vref_code;
+    wire [VOLTAGE_W-1:0] dq_dqs_vref_uv;
+    wire [2*VOLTAGE_W-1:0] dq_dqs_pin_uv;
+    wire [2*VOLTAGE_W-1:0] dq_dqs_tx_pin_uv;
     wire      dq_cmd_conflict;
     wire      dq_cmd_ready;
     wire      accept_read_cmd;
@@ -83,18 +128,26 @@ module Dram #(
     wire      reject_dq_cmd;
     integer i;
 
-    assign write_window_open = pipe_in_valid[mr1_wl] | (write_window_timer != 4'd0);
+    assign write_window_open = pipe_in_valid[mr1_wl] | (write_window_timer != 7'd0);
     assign active_write_addr = pipe_in_valid[mr1_wl] ? pipe_in_addr[mr1_wl] : write_window_addr;
-    assign dq_rx_skewed  = skew_pick(dq_rx_pipe, RX_DQ_SKEW);
-    assign dqs_rx_skewed = skew_pick(dqs_rx_pipe, RX_DQS_SKEW);
-    assign dq_tx_skewed  = skew_pick(dq_tx_pipe, TX_DQ_SKEW);
-    assign dqs_tx_skewed = skew_pick(dqs_tx_pipe, TX_DQS_SKEW);
+    assign rx_dq_skew = (RX_DQ_SKEW_CFG <= SKEW_DEPTH) ? RX_DQ_SKEW_CFG : RX_DQ_SKEW;
+    assign rx_dqs_skew = (RX_DQS_SKEW_CFG <= SKEW_DEPTH) ? RX_DQS_SKEW_CFG : RX_DQS_SKEW;
+    assign tx_dq_skew = (TX_DQ_SKEW_CFG <= SKEW_DEPTH) ? TX_DQ_SKEW_CFG : TX_DQ_SKEW;
+    assign tx_dqs_skew = (TX_DQS_SKEW_CFG <= SKEW_DEPTH) ? TX_DQS_SKEW_CFG : TX_DQS_SKEW;
+    assign dq_rx_skewed  = skew_pick(dq_rx_pipe, rx_dq_skew);
+    assign dqs_rx_skewed = skew_pick(dqs_rx_pipe, rx_dqs_skew);
+    assign dq_tx_skewed  = skew_pick(dq_tx_pipe, tx_dq_skew);
+    assign dqs_tx_skewed = skew_pick(dqs_tx_pipe, tx_dqs_skew);
+    assign max_tx_skew = (tx_dqs_skew >= tx_dq_skew) ? tx_dqs_skew : tx_dq_skew;
+    assign effective_vref_code = (mr5_vref_code > 8'd200) ? 8'd200 : mr5_vref_code;
+    assign dq_dqs_vref_uv = scale_vref_uv(VDDQ_UV, effective_vref_code);
     assign dq_cmd_conflict = (R & W) | (R & MRR) | (W & MRR);
     assign dq_cmd_ready = (dq_turnaround_timer == 8'd0);
     assign accept_read_cmd = R & dq_cmd_ready & ~W & ~MRR;
     assign accept_write_cmd = W & dq_cmd_ready & ~R & ~MRR;
     assign accept_mrr_cmd = MRR & dq_cmd_ready & ~R & ~W;
-    assign accept_mrw_cmd = MRW & ((ADDR == 8'd0) | (ADDR == 8'd1) | (ADDR == 8'd2) | (ADDR == 8'd4));
+    assign accept_mrw_cmd = MRW & ((ADDR == 8'd0) | (ADDR == 8'd1) | (ADDR == 8'd2) |
+                                   (ADDR == 8'd4) | (ADDR == 8'd5));
     assign reject_dq_cmd = (R | W | MRR) & (dq_cmd_conflict | ~dq_cmd_ready);
     assign status_reg = {
         mr2_error,
@@ -106,6 +159,41 @@ module Dram #(
         mr2_last_read_req,
         1'b0
     };
+    assign DQ_RX_PIN_UV = dq_dqs_pin_uv[0*VOLTAGE_W +: VOLTAGE_W];
+    assign DQS_RX_PIN_UV = dq_dqs_pin_uv[1*VOLTAGE_W +: VOLTAGE_W];
+    assign DQ_TX_PIN_UV = dq_dqs_tx_pin_uv[0*VOLTAGE_W +: VOLTAGE_W];
+    assign DQS_TX_PIN_UV = dq_dqs_tx_pin_uv[1*VOLTAGE_W +: VOLTAGE_W];
+
+    DutInputComparator #(
+        .PIN_NUM(2),
+        .VOLTAGE_W(VOLTAGE_W)
+    ) u_dq_dqs_input_comparator (
+        .CLK(ATE_CLK),
+        .RST_N(RST_N),
+        .ENABLE({DQS_RX_ANALOG_ENABLE, DQ_RX_ANALOG_ENABLE}),
+        .DIGITAL_BYPASS({DQS_RX_BIT, DQ_RX_BIT}),
+        .ATE_PIN_UV({ATE_DQS_RX_UV, ATE_DQ_RX_UV}),
+        .VREF_UV({dq_dqs_vref_uv, dq_dqs_vref_uv}),
+        .RISE_STEP_UV({DQS_RX_RISE_STEP_UV, DQ_RX_RISE_STEP_UV}),
+        .FALL_STEP_UV({DQS_RX_FALL_STEP_UV, DQ_RX_FALL_STEP_UV}),
+        .DIGITAL_OUT({dqs_rx_digital, dq_rx_digital}),
+        .DUT_PIN_UV(dq_dqs_pin_uv)
+    );
+
+    DutOutputDriver #(
+        .PIN_NUM(2),
+        .VOLTAGE_W(VOLTAGE_W)
+    ) u_dq_dqs_output_driver (
+        .CLK(ATE_CLK),
+        .RST_N(RST_N),
+        .ENABLE({DQS_TX_ANALOG_ENABLE, DQ_TX_ANALOG_ENABLE}),
+        .DIGITAL_IN({DQS_TX_BIT, DQ_TX_BIT}),
+        .LOW_UV({DQS_TX_LOW_UV, DQ_TX_LOW_UV}),
+        .HIGH_UV({DQS_TX_HIGH_UV, DQ_TX_HIGH_UV}),
+        .RISE_STEP_UV({DQS_TX_RISE_STEP_UV, DQ_TX_RISE_STEP_UV}),
+        .FALL_STEP_UV({DQS_TX_FALL_STEP_UV, DQ_TX_FALL_STEP_UV}),
+        .PIN_UV(dq_dqs_tx_pin_uv)
+    );
 
     function any_read_pending;
         integer j;
@@ -129,14 +217,32 @@ module Dram #(
 
     function skew_pick;
         input [SKEW_DEPTH:0] values;
-        input integer skew;
+        input [3:0] skew;
         begin
-            if (skew <= 0) begin
+            if (skew <= 4'd0) begin
                 skew_pick = values[0];
             end else if (skew >= SKEW_DEPTH) begin
-                skew_pick = values[SKEW_DEPTH];
+                skew_pick = values[SKEW_DEPTH_INDEX];
             end else begin
-                skew_pick = values[skew];
+                skew_pick = values[skew[2:0]];
+            end
+        end
+    endfunction
+
+    function [VOLTAGE_W-1:0] scale_vref_uv;
+        input [VOLTAGE_W-1:0] vdd_uv;
+        input [7:0] code;
+        reg [VOLTAGE_W+7:0] vdd_uv_ext;
+        reg [VOLTAGE_W+7:0] code_ext;
+        reg [VOLTAGE_W+7:0] scaled_uv;
+        begin
+            vdd_uv_ext = {{8{1'b0}}, vdd_uv};
+            code_ext = {{VOLTAGE_W{1'b0}}, code};
+            scaled_uv = (vdd_uv_ext * code_ext) / {{VOLTAGE_W{1'b0}}, 8'd200};
+            if (scaled_uv > {{8{1'b0}}, {VOLTAGE_W{1'b1}}}) begin
+                scale_vref_uv = {VOLTAGE_W{1'b1}};
+            end else begin
+                scale_vref_uv = scaled_uv[VOLTAGE_W-1:0];
             end
         end
     endfunction
@@ -176,6 +282,7 @@ module Dram #(
             mr2_last_mrw_req <= 1'b0;
             mr2_last_write_data <= 1'b0;
             mr4_turnaround <= MR4_MIN_TURNAROUND;
+            mr5_vref_code <= 8'd100;
             mr3_shift_data <= 8'b01011010;
             dq_turnaround_timer <= 8'd0;
 
@@ -191,11 +298,11 @@ module Dram #(
                 pipe_in_valid[i] <= 1'b0;
             end
 
-            write_window_timer <= 4'd0;
+            write_window_timer <= 7'd0;
             write_window_addr <= 8'd0;
             rx_state <= RX_IDLE;
             rx_count <= 4'd0;
-            rx_dqs_shift <= 3'd0;
+            rx_dqs_shift <= {3{DQS_IDLE}};
             rx_data <= 8'd0;
             rx_addr <= 8'd0;
             rx_frame_valid <= 1'b0;
@@ -203,19 +310,25 @@ module Dram #(
             tx_active <= 1'b0;
             tx_count <= 4'd0;
             tx_payload <= 8'd0;
+            tx_oe_timer <= 5'd0;
             dq_rx_pipe <= {(SKEW_DEPTH + 1){DQ_IDLE}};
             dqs_rx_pipe <= {(SKEW_DEPTH + 1){DQS_IDLE}};
             dq_tx_pipe <= {(SKEW_DEPTH + 1){DQ_IDLE}};
             dqs_tx_pipe <= {(SKEW_DEPTH + 1){DQS_IDLE}};
         end else begin
-            dq_rx_pipe <= {dq_rx_pipe[SKEW_DEPTH - 1:0], DQ_RX_BIT};
-            dqs_rx_pipe <= {dqs_rx_pipe[SKEW_DEPTH - 1:0], DQS_RX_BIT};
+            dq_rx_pipe <= {dq_rx_pipe[SKEW_DEPTH - 1:0], dq_rx_digital};
+            dqs_rx_pipe <= {dqs_rx_pipe[SKEW_DEPTH - 1:0], dqs_rx_digital};
             dq_tx_pipe <= {dq_tx_pipe[SKEW_DEPTH - 1:0], dq_tx_raw};
             dqs_tx_pipe <= {dqs_tx_pipe[SKEW_DEPTH - 1:0], dqs_tx_raw};
 
             DQ_TX_BIT <= dq_tx_skewed;
             DQS_TX_BIT <= dqs_tx_skewed;
-            DQ_OE <= 1'b0;
+            if (tx_oe_timer != 5'd0) begin
+                DQ_OE <= 1'b1;
+                tx_oe_timer <= tx_oe_timer - 5'd1;
+            end else begin
+                DQ_OE <= 1'b0;
+            end
             DQ_IE <= 1'b0;
             rx_write_commit <= 1'b0;
             mr2_last_mrw_req <= accept_mrw_cmd;
@@ -269,10 +382,16 @@ module Dram #(
             pipe_in_addr[0] <= ADDR;
 
             if (pipe_in_valid[mr1_wl]) begin
-                write_window_timer <= 4'd13;
+                // DQ_IE now means receiver-ready. The DQS frame may begin on
+                // any following cycle before this functional timeout expires.
+                write_window_timer <= WRITE_RX_TIMEOUT;
                 write_window_addr <= pipe_in_addr[mr1_wl];
-            end else if (write_window_timer != 4'd0) begin
-                write_window_timer <= write_window_timer - 4'd1;
+                rx_state <= RX_IDLE;
+                rx_count <= 4'd0;
+                rx_frame_valid <= 1'b0;
+                rx_dqs_shift <= {3{DQS_IDLE}};
+            end else if (write_window_timer != 7'd0) begin
+                write_window_timer <= write_window_timer - 7'd1;
             end
 
             if (write_window_open) begin
@@ -306,11 +425,14 @@ module Dram #(
                         if (rx_frame_valid && dqs_rx_skewed == 1'b0) begin
                             array[rx_addr] <= rx_data;
                             rx_write_commit <= 1'b1;
+                        end else begin
+                            mr2_error <= 1'b1;
                         end
+                        write_window_timer <= 7'd0;
                         rx_state <= RX_IDLE;
                         rx_count <= 4'd0;
                         rx_frame_valid <= 1'b0;
-                        rx_dqs_shift <= 3'd0;
+                        rx_dqs_shift <= {3{DQS_IDLE}};
                     end else begin
                         rx_count <= 4'd1;
                     end
@@ -319,7 +441,7 @@ module Dram #(
                 rx_state <= RX_IDLE;
                 rx_count <= 4'd0;
                 rx_frame_valid <= 1'b0;
-                rx_dqs_shift <= 3'd0;
+                rx_dqs_shift <= {3{DQS_IDLE}};
             end
 
             //  #######################################################
@@ -344,6 +466,9 @@ module Dram #(
                 dqs_tx_raw <= dqs_frame_bit(4'd0);
                 DQ_OUT_VALID <= 1'b1;
                 DQ_OE  <= 1'b1;
+                // Cover the 14-cycle frame, the slower MR6 skew, and the two
+                // registered stages from raw frame generation to output pin.
+                tx_oe_timer <= 5'd15 + {1'b0, max_tx_skew};
             end
             //  #######################################################
 
@@ -363,6 +488,10 @@ module Dram #(
                 pipe_mr_data[0] <= mr3_shift_data;
             end else if (ADDR == 8'd4) begin
                 pipe_mr_data[0] <= mr4_turnaround;
+            end else if (ADDR == 8'd5) begin
+                pipe_mr_data[0] <= mr5_vref_code;
+            end else if (ADDR == 8'd6) begin
+                pipe_mr_data[0] <= {tx_dqs_skew, tx_dq_skew};
             end else begin
                 pipe_mr_data[0] <= 8'd0;
             end
@@ -377,10 +506,12 @@ module Dram #(
                 dqs_tx_raw <= dqs_frame_bit(4'd0);
                 DQ_OUT_VALID <= 1'b1;
                 DQ_OE <= 1'b1;
+                tx_oe_timer <= 5'd15 + {1'b0, max_tx_skew};
             end
             //  #######################################################
 
-            // Write MR. MR0/MR1/MR4 are writable. MR2 is status-clear, MR3 is read-only rotating ID.
+            // Write MR. MR0/MR1/MR4/MR5 are writable. MR2 is status-clear;
+            // MR3 is a read-only rotating ID and MR6 reports static skew.
             if (MRW && ADDR == 8'd0) begin
                 mr0_rl <= MR_IN;
             end else if (MRW && ADDR == 8'd1) begin
@@ -395,6 +526,8 @@ module Dram #(
                 end else begin
                     mr4_turnaround <= MR_IN;
                 end
+            end else if (MRW && ADDR == 8'd5) begin
+                mr5_vref_code <= MR_IN;
             end else if (MRW) begin
                 mr2_error <= 1'b1;
             end

@@ -50,6 +50,7 @@ generated/
 # ===== CMake / Ninja =====
 CMakeFiles/
 CMakeLists.txt
+!C++/CMakeLists.txt
 CMakeCache.txt
 cmake_install.cmake
 compile_commands.json

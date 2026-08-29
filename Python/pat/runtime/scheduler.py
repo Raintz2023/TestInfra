@@ -4,8 +4,13 @@ from typing import Mapping
 
 import ate
 
+from Python.pat.physical import TIME, Time
 from Python.pat.runtime.model import Command, CommandSet, Pin, Socket
 from Python.pat.runtime.timing import TimingSet
+from Python.pat.runtime.voltage import (
+    VoltageSet,
+    apply_voltages,
+)
 
 
 class PatternScheduler:
@@ -20,11 +25,13 @@ class PatternScheduler:
                  ate_obj: ate.ATE,
                  socket: Socket,
                  commands: CommandSet,
-                 timings: dict[str, TimingSet]) -> None:
+                 timings: dict[str, TimingSet],
+                 voltage: VoltageSet) -> None:
         self.ate = ate_obj
         self.socket = socket
         self.commands = commands
         self.timings = timings
+        self.voltage = voltage
         self.pattern_phase = int(ate_obj.phase())
         self.lookahead_phase = self._calc_lookahead_phase(timings)
         self._latest_due_phase = self.pattern_phase
@@ -32,6 +39,31 @@ class PatternScheduler:
         self._row_explicit_input_bits: set[int] = set()
         self._row_started = False
         self._row_timing_name = "TS0"
+        self._initialize_voltage_defaults()
+
+    def _initialize_voltage_defaults(self) -> None:
+        """Apply the pattern voltage once and bind initial digital pin state."""
+        apply_voltages(self.ate, self.socket, self.voltage)
+        due = self.pattern_phase
+        for pin in self.socket.pins:
+            if not pin.input or not pin.supply:
+                continue
+            for bit in range(pin.width):
+                bit_index = pin.lsb + bit
+                bit_value = ((int(pin.default_value) >> bit) & 1) != 0
+                # This is a one-time explicit initialization event. Ordinary
+                # row defaults remain voltage-neutral.
+                self.ate.schedule_input_pin_at(
+                    due,
+                    bit_index,
+                    bit_value,
+                    0,
+                    0,
+                    True,
+                    False,
+                )
+        self._latest_due_phase = max(self._latest_due_phase, due)
+        self._latest_due_with_pin_delay = max(self._latest_due_with_pin_delay, due)
 
     @staticmethod
     def _calc_lookahead_phase(timings: dict[str, TimingSet]) -> int:
@@ -40,18 +72,18 @@ class PatternScheduler:
             offsets: list[int] = []
             for variant_name in timing.nrz.variant_names:
                 variant = timing.nrz.variant(variant_name)
-                offsets.append(int(variant.edge) + int(variant.base))
+                offsets.append(variant.edge.as_ps() + variant.base.as_ps())
             for variant_name in timing.rz.variant_names:
                 variant = timing.rz.variant(variant_name)
-                offsets.append(int(variant.edge_1) + int(variant.base))
-                offsets.append(int(variant.edge_2) + int(variant.base))
+                offsets.append(variant.edge_1.as_ps() + variant.base.as_ps())
+                offsets.append(variant.edge_2.as_ps() + variant.base.as_ps())
             for variant_name in timing.rzz.variant_names:
                 variant = timing.rzz.variant(variant_name)
-                offsets.append(int(variant.edge_1) + int(variant.base))
-                offsets.append(int(variant.edge_2) + int(variant.base))
+                offsets.append(variant.edge_1.as_ps() + variant.base.as_ps())
+                offsets.append(variant.edge_2.as_ps() + variant.base.as_ps())
             for variant_name in timing.stb.variant_names:
                 variant = timing.stb.variant(variant_name)
-                offsets.append(int(variant.edge) + int(variant.base))
+                offsets.append(variant.edge.as_ps() + variant.base.as_ps())
             min_offset = min(min_offset, *offsets)
         return max(0, -min_offset)
 
@@ -65,7 +97,7 @@ class PatternScheduler:
         command = self.commands.command(name)
         if len(value_list) != len(command.params):
             raise ValueError(f"command {name} expects {len(command.params)} args, got {len(value_list)}")
-        if int(command.delay) < 0:
+        if command.delay.count < 0:
             raise ValueError(f"command {name} delay must be non-negative")
 
         timing = self._begin_row(timing_name)
@@ -85,7 +117,7 @@ class PatternScheduler:
             return
         timing = self._timing(self._row_timing_name)
         self._schedule_row_idle_defaults(self.pattern_phase, timing)
-        self.pattern_phase += int(timing.prd)
+        self.pattern_phase += timing.prd.as_ps()
         self._row_started = False
         self._row_timing_name = "TS0"
         self._row_explicit_input_bits.clear()
@@ -98,7 +130,7 @@ class PatternScheduler:
             self._row_explicit_input_bits.clear()
             self._schedule_row_waveforms(self.pattern_phase, timing)
             self._schedule_row_idle_defaults(self.pattern_phase, timing)
-            self.pattern_phase += int(timing.prd)
+            self.pattern_phase += timing.prd.as_ps()
             self.flush_safe()
 
     def alert(self, timing_name: str) -> None:
@@ -164,8 +196,12 @@ class PatternScheduler:
             )
         return self._timing(self._row_timing_name)
 
-    def _phase_at(self, row_start: int, waveform_phase: int, base_phase: int, label: str) -> int:
-        due = row_start + int(waveform_phase) + int(base_phase)
+    def _phase_at(self,
+                  row_start: int,
+                  waveform_phase: Time,
+                  base_phase: Time,
+                  label: str) -> int:
+        due = row_start + waveform_phase.as_ps() + base_phase.as_ps()
         if due < 0:
             raise RuntimeError(f"{label} event scheduled before phase 0")
         if due < int(self.ate.phase()):
@@ -175,11 +211,10 @@ class PatternScheduler:
         self._latest_due_phase = max(self._latest_due_phase, due)
         return due
 
-    def _command_delay_phases(self, timing, command: Command) -> int:
-        delay_periods = int(command.delay)
-        if delay_periods < 0:
+    def _command_delay_phases(self, timing: TimingSet, command: Command) -> int:
+        if command.delay.count < 0:
             raise ValueError(f"delay periods must be non-negative for command: {command.name}")
-        return delay_periods * int(timing.prd)
+        return command.delay.to_time(timing.prd).as_ps()
 
     def _schedule_row_waveforms(self, row_start: int, timing) -> None:
         for pin in self.socket.pins:
@@ -200,7 +235,7 @@ class PatternScheduler:
             raise ValueError(f"drive action is not an input pin: {action.pin_name}")
         if pin.waveform.kind == ate.DriveWaveformKind.RZZ:
             raise ValueError(f"drive action does not support RZZ pin: {action.pin_name}")
-        if not self._drive_variant_open(timing, pin):
+        if self._drive_variant_closed(timing, pin):
             return
 
         if action.literal_value is not None:
@@ -234,7 +269,7 @@ class PatternScheduler:
             raise ValueError(f"pulse action requires single-bit pin: {action.pin_name}")
         if pin.waveform.kind != ate.DriveWaveformKind.RZ:
             raise ValueError(f"pulse action requires RZ pin: {action.pin_name}")
-        if not self._drive_variant_open(timing, pin):
+        if self._drive_variant_closed(timing, pin):
             return
 
         default_value = int(pin.default_value) & 1
@@ -255,7 +290,7 @@ class PatternScheduler:
             expected = int(value_list[action.param_index])
 
         stb_timing = self._stb_timing(timing, pin)
-        if not int(stb_timing.open):
+        if stb_timing.close:
             return
         due = self._phase_at(row_start, stb_timing.edge, stb_timing.base, "sample")
         pin_delay = self._command_delay_phases(timing, command)
@@ -264,7 +299,7 @@ class PatternScheduler:
 
     def _schedule_rzz_pin(self, row_start: int, timing, pin: Pin, default_value: bool) -> None:
         rzz_timing = self._rzz_timing(timing, pin)
-        if not int(rzz_timing.open):
+        if rzz_timing.close:
             return
         rise_due = self._phase_at(row_start, rzz_timing.edge_1, rzz_timing.base, "rzz_rise")
         fall_due = self._phase_at(row_start, rzz_timing.edge_2, rzz_timing.base, "rzz_fall")
@@ -278,7 +313,7 @@ class PatternScheduler:
                            value: int,
                            pin_delay_phases: int) -> None:
         rz_timing = self._rz_timing(timing, pin)
-        if not int(rz_timing.open):
+        if rz_timing.close:
             return
         rise_due = self._phase_at(row_start, rz_timing.edge_1, rz_timing.base, "rz")
         return_due = self._phase_at(row_start, rz_timing.edge_2, rz_timing.base, "rz_return")
@@ -307,13 +342,15 @@ class PatternScheduler:
                             pin_delay_phases: int,
                             default_value_event: bool) -> None:
         nrz_timing = self._nrz_timing(timing, pin)
-        if not int(nrz_timing.open):
+        if nrz_timing.close:
             return
         due = self._phase_at(row_start, nrz_timing.edge, nrz_timing.base, "nrz")
-        hold_duration = 0 if pin_delay_phases == 0 else int(timing.prd)
+        hold_duration = 0 if pin_delay_phases == 0 else timing.prd.as_ps()
         update_stable = pin_delay_phases == 0
-        self._latest_due_with_pin_delay = max(self._latest_due_with_pin_delay, due + pin_delay_phases)
-
+        self._latest_due_with_pin_delay = max(
+            self._latest_due_with_pin_delay,
+            due + pin_delay_phases + hold_duration,
+        )
         for bit in range(pin.width):
             bit_value = ((int(value) >> bit) & 1) != 0
             bit_index = pin.lsb + bit
@@ -328,11 +365,17 @@ class PatternScheduler:
             )
 
     def _schedule_idle_field(self, row_start: int, pin: Pin) -> None:
-        due = self._phase_at(row_start, 0, 0, "input_default")
-        for bit in range(pin.width):
-            bit_index = pin.lsb + bit
-            if bit_index in self._row_explicit_input_bits:
-                continue
+        due = self._phase_at(row_start, TIME.PS(0), TIME.PS(0), "input_default")
+        idle_bits = [
+            pin.lsb + bit
+            for bit in range(pin.width)
+            if pin.lsb + bit not in self._row_explicit_input_bits
+        ]
+        if not idle_bits:
+            return
+
+        for bit_index in idle_bits:
+            bit = bit_index - pin.lsb
             bit_value = ((int(pin.default_value) >> bit) & 1) != 0
             self.ate.schedule_input_pin_at(
                 due,
@@ -348,11 +391,11 @@ class PatternScheduler:
         for bit in range(pin.width):
             self._row_explicit_input_bits.add(pin.lsb + bit)
 
-    def _drive_variant_open(self, timing, pin: Pin) -> bool:
+    def _drive_variant_closed(self, timing, pin: Pin) -> bool:
         if pin.waveform.kind == ate.DriveWaveformKind.NRZ:
-            return bool(int(self._nrz_timing(timing, pin).open))
+            return self._nrz_timing(timing, pin).close
         if pin.waveform.kind == ate.DriveWaveformKind.RZ:
-            return bool(int(self._rz_timing(timing, pin).open))
+            return self._rz_timing(timing, pin).close
         if pin.waveform.kind == ate.DriveWaveformKind.RZZ:
-            return bool(int(self._rzz_timing(timing, pin).open))
-        return True
+            return self._rzz_timing(timing, pin).close
+        return False

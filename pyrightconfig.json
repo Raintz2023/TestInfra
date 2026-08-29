@@ -1,0 +1,22 @@
+{
+  "include": [
+    "Python/pat/physical.py",
+    "Python/pat/runtime/timing.py",
+    "Python/pat/runtime/voltage.py",
+    "Python/pat/main",
+    "Python/pat/lint",
+    "Python/pat/training",
+    "Python/tests"
+  ],
+  "exclude": [
+    "Python/pat/generated"
+  ],
+  "extraPaths": [
+    ".",
+    "Python/libs",
+    "Python/pat/main"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic",
+  "reportMissingTypeStubs": false
+}

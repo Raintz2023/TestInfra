@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import json
 import re
 import sys
 from pathlib import Path
@@ -32,10 +31,39 @@ PORT_RE = re.compile(
     re.MULTILINE,
 )
 
+ANALOG_INFRA_PORTS = {
+    "ANALOG_ENABLE",
+    "VDDQ_UV",
+    "ATE_CLK",
+    "ATE_PIN_IN_UV",
+    "DUT_INPUT_ENABLE",
+    "DUT_INPUT_RISE_STEP_UV",
+    "DUT_INPUT_FALL_STEP_UV",
+    "DUT_RX_DQS_SKEW",
+    "DUT_RX_DQ_SKEW",
+    "DUT_TX_DQS_SKEW",
+    "DUT_TX_DQ_SKEW",
+    "DUT_OUTPUT_ENABLE",
+    "DUT_LOW_UV",
+    "DUT_HIGH_UV",
+    "DUT_RISE_STEP_UV",
+    "DUT_FALL_STEP_UV",
+    "PIN_IN_UV",
+    "PIN_OUT_UV",
+}
+
+
+def is_analog_infra_port(name: str) -> bool:
+    # Any *_UV port is a direct analog/power infrastructure signal. It is
+    # visible on the DUT boundary for voltage binding, but it must not consume
+    # digital IN/OUT pin numbers.
+    lower = name.lower()
+    return name in ANALOG_INFRA_PORTS or lower.endswith("_uv") or lower.endswith("uv")
+
 
 def project_root() -> Path:
     # Locate the repository root from this script's fixed path:
-    #   <root>/Verilog/pin/gen_pin_adapter.py
+    #   <root>/Verilog/script/gen_pin_adapter.py
     return Path(__file__).resolve().parents[2]
 
 
@@ -44,33 +72,13 @@ def strip_comments(text: str) -> str:
     return re.sub(r"//.*", "", text)
 
 
-def parse_config(config_path: Path) -> PinMapConfig:
-    # Compatibility path for explicit .json input. Normal pingen DUT-name flow
-    # builds this config directly from the RTL module header instead.
-    #
-    # Normalize raw json into typed structures so later code can rely on
-    # concrete field names and int widths without repeated casting.
-    raw = json.loads(config_path.read_text())
-    return PinMapConfig(
-        dut=raw["dut"],
-        pin_in=[
-            PinEntry(port=entry["port"], lsb=entry["lsb"], msb=entry["msb"])
-            for entry in raw["pin_in"]
-        ],
-        pin_out=[
-            PinEntry(port=entry["port"], lsb=entry["lsb"], msb=entry["msb"])
-            for entry in raw["pin_out"]
-        ],
-    )
-
-
 def parse_ports(dut_text: str, dut_module: str) -> dict[str, PortInfo]:
     # Parse an ANSI-style Verilog module header and extract each port's
     # direction and width. This generator intentionally reads only the DUT
     # interface and never tries to infer behavior from the module body.
     text = strip_comments(dut_text)
     match = re.search(
-        rf"module\s+{re.escape(dut_module)}\s*\((.*?)\)\s*;",
+        rf"module\s+{re.escape(dut_module)}\s*(?:#\s*\(.*?\)\s*)?\((.*?)\)\s*;",
         text,
         re.DOTALL,
     )
@@ -79,6 +87,8 @@ def parse_ports(dut_text: str, dut_module: str) -> dict[str, PortInfo]:
 
     ports: dict[str, PortInfo] = {}
     for direction, msb, lsb, name in PORT_RE.findall(match.group(1)):
+        if is_analog_infra_port(name):
+            continue
         width = 1 if not msb else abs(int(msb) - int(lsb)) + 1
         ports[name] = PortInfo(direction=direction, width=width)
     if not ports:
@@ -208,19 +218,68 @@ def emit_pin_out_adapter(config: PinMapConfig, ports: dict[str, PortInfo], pin_o
     return "\n".join(lines)
 
 
-def emit_wrapper(config: PinMapConfig, ports: dict[str, PortInfo], pin_in_width: int, pin_out_width: int) -> str:
+def detect_analog_infra_ports(dut_text: str, dut_module: str) -> set[str]:
+    text = strip_comments(dut_text)
+    match = re.search(
+        rf"module\s+{re.escape(dut_module)}\s*(?:#\s*\(.*?\)\s*)?\((.*?)\)\s*;",
+        text,
+        re.DOTALL,
+    )
+    if not match:
+        return set()
+    header = match.group(1)
+    parsed_uv_ports = {
+        name
+        for _direction, _msb, _lsb, name in PORT_RE.findall(header)
+        if is_analog_infra_port(name)
+    }
+    known_ports = {name for name in ANALOG_INFRA_PORTS if re.search(rf"\b{name}\b", header)}
+    return parsed_uv_ports | known_ports
+
+
+def emit_wrapper(config: PinMapConfig,
+                 ports: dict[str, PortInfo],
+                 pin_in_width: int,
+                 pin_out_width: int,
+                 analog_infra_ports: set[str],
+                 instance_module: str | None = None) -> str:
     # Generate Verilog/ate/DUT.v.
-    # This is the only DUT wrapper used by the ATE flow:
-    #   PIN bus -> PinInAdapter -> real DUT -> PinOutAdapter -> PIN bus
+    # This is the only DUT wrapper used by the ATE flow. ATE-side voltage
+    # generation and comparison live in Socket.v; DUT-side analog behavior is
+    # owned by the selected DUT when it exposes the analog infrastructure ports.
     in_entries = config["pin_in"]
     out_entries = config["pin_out"]
-    dut_module = config["dut"]
+    dut_module = instance_module or config["dut"]
 
     lines = [
-        "module DUT(",
+        "module DUT #(",
+        "    parameter VOLTAGE_W = 32",
+        ")(",
+        "    /* verilator lint_off UNUSEDSIGNAL */",
+        "    input  wire ATE_CLK,",
+        "    input  wire ATE_RST_N,",
+        "    input  wire DUT_ANALOG_ENABLE,",
+        "    /* verilator lint_on UNUSEDSIGNAL */",
         f"    input  wire [{pin_in_width - 1}:0] IN,",
-        f"    output wire [{pin_out_width - 1}:0] OUT",
+        f"    input  wire [{pin_in_width - 1}:0] DUT_INPUT_ENABLE,",
+        f"    input  wire [{pin_in_width}*VOLTAGE_W-1:0] ATE_PIN_IN_UV,",
+        f"    input  wire [{pin_in_width}*VOLTAGE_W-1:0] DUT_INPUT_RISE_STEP_UV,",
+        f"    input  wire [{pin_in_width}*VOLTAGE_W-1:0] DUT_INPUT_FALL_STEP_UV,",
+        "    input  wire [3:0] DUT_RX_DQS_SKEW,",
+        "    input  wire [3:0] DUT_RX_DQ_SKEW,",
+        "    input  wire [3:0] DUT_TX_DQS_SKEW,",
+        "    input  wire [3:0] DUT_TX_DQ_SKEW,",
+        f"    input  wire [{pin_out_width - 1}:0] DUT_OUTPUT_ENABLE,",
+        f"    input  wire [{pin_out_width}*VOLTAGE_W-1:0] DUT_LOW_UV,",
+        f"    input  wire [{pin_out_width}*VOLTAGE_W-1:0] DUT_HIGH_UV,",
+        f"    input  wire [{pin_out_width}*VOLTAGE_W-1:0] DUT_RISE_STEP_UV,",
+        f"    input  wire [{pin_out_width}*VOLTAGE_W-1:0] DUT_FALL_STEP_UV,",
+        "    input  wire [VOLTAGE_W-1:0] DUT_VDDQ_UV,",
+        f"    output wire [{pin_out_width - 1}:0] OUT,",
+        f"    output wire [{pin_in_width}*VOLTAGE_W-1:0] PIN_IN_UV,",
+        f"    output wire [{pin_out_width}*VOLTAGE_W-1:0] PIN_OUT_UV",
         ");",
+        f"    wire [{pin_out_width - 1}:0] dut_output;",
     ]
 
     for entry in in_entries:
@@ -244,17 +303,49 @@ def emit_wrapper(config: PinMapConfig, ports: dict[str, PortInfo], pin_in_width:
     # order. In the normal DUT-name flow, adapter order is derived from that
     # same header, so RTL is the single source of pin numbering.
     ordered_ports = [entries_by_port[name] for name in ports if name in entries_by_port]
-    for idx, entry in enumerate(ordered_ports):
-        comma = "," if idx != len(ordered_ports) - 1 else ""
-        lines.append(f"        .{entry['port']:<12}({entry['port']}){comma}")
+    connection_lines: list[str] = []
+    for entry in ordered_ports:
+        connection_lines.append(f"        .{entry['port']:<12}({entry['port']})")
+    infra_connections = {
+        "VDDQ_UV": "DUT_VDDQ_UV",
+        "ANALOG_ENABLE": "DUT_ANALOG_ENABLE",
+        "ATE_CLK": "ATE_CLK",
+        "ATE_PIN_IN_UV": "ATE_PIN_IN_UV",
+        "DUT_INPUT_ENABLE": "DUT_INPUT_ENABLE",
+        "DUT_INPUT_RISE_STEP_UV": "DUT_INPUT_RISE_STEP_UV",
+        "DUT_INPUT_FALL_STEP_UV": "DUT_INPUT_FALL_STEP_UV",
+        "DUT_RX_DQS_SKEW": "DUT_RX_DQS_SKEW",
+        "DUT_RX_DQ_SKEW": "DUT_RX_DQ_SKEW",
+        "DUT_TX_DQS_SKEW": "DUT_TX_DQS_SKEW",
+        "DUT_TX_DQ_SKEW": "DUT_TX_DQ_SKEW",
+        "DUT_OUTPUT_ENABLE": "DUT_OUTPUT_ENABLE",
+        "DUT_LOW_UV": "DUT_LOW_UV",
+        "DUT_HIGH_UV": "DUT_HIGH_UV",
+        "DUT_RISE_STEP_UV": "DUT_RISE_STEP_UV",
+        "DUT_FALL_STEP_UV": "DUT_FALL_STEP_UV",
+        "PIN_IN_UV": "PIN_IN_UV",
+        "PIN_OUT_UV": "PIN_OUT_UV",
+    }
+    for port, signal in infra_connections.items():
+        if port in analog_infra_ports:
+            connection_lines.append(f"        .{port:<12}({signal})")
+    for idx, line in enumerate(connection_lines):
+        comma = "," if idx != len(connection_lines) - 1 else ""
+        lines.append(line + comma)
     lines.append("    );")
     lines.append("")
 
     lines.append("    PinOutAdapter u_pin_out_adapter (")
     for entry in out_entries:
         lines.append(f"        .{entry['port']:<12}({entry['port']}),")
-    lines.append("        .PIN_OUT     (OUT)")
+    lines.append("        .PIN_OUT     (dut_output)")
     lines.append("    );")
+    lines.append("")
+    if "PIN_IN_UV" not in analog_infra_ports:
+        lines.append(f"    assign PIN_IN_UV = ATE_PIN_IN_UV;")
+    if "PIN_OUT_UV" not in analog_infra_ports:
+        lines.append(f"    assign PIN_OUT_UV = {{{pin_out_width}*VOLTAGE_W{{1'b0}}}};")
+    lines.append("    assign OUT = dut_output;")
     lines.append("")
     lines.append("endmodule")
     lines.append("")
@@ -309,45 +400,49 @@ def emit_ate_socket_config(source_label: str,
 def main() -> int:
     # Entry point:
     # 1. parse DUT interface
-    # 2. build or load pin mapping
+    # 2. build pin mapping from RTL port order
     # 3. validate mapping
     # 4. generate wrapper/adapters
     # 5. update Socket.v pin widths
     if len(sys.argv) != 2:
-        print("usage: gen_pin_adapter.py <dut-name|pinmap.json>", file=sys.stderr)
+        print("usage: gen_pin_adapter.py <dut-name>", file=sys.stderr)
         return 1
 
     root = project_root()
-    arg = sys.argv[1]
-    candidate = Path(arg)
-
-    if candidate.suffix == ".json":
-        config_path = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
-        if not config_path.is_file():
-            print(f"pinmap not found: {config_path}", file=sys.stderr)
-            return 1
-        config = parse_config(config_path)
-        source_label = str(config_path.relative_to(root))
-    else:
-        config = None
-        source_label = f"Verilog/dut/{arg}.v"
-
-    dut_name = config["dut"] if config is not None else arg
+    dut_name = sys.argv[1]
+    source_label = f"Verilog/dut/{dut_name}.v"
     dut_file = root / "Verilog" / "dut" / f"{dut_name}.v"
     if not dut_file.is_file():
         print(f"dut file not found: {dut_file}", file=sys.stderr)
         return 1
 
-    ports = parse_ports(dut_file.read_text(), dut_name)
-    if config is None:
-        config = build_config_from_ports(dut_name, ports)
+    dut_text = dut_file.read_text()
+    ports = parse_ports(dut_text, dut_name)
+    wrapper_name = f"{dut_name}AnalogWrapper"
+    wrapper_file = root / "Verilog" / "dut" / f"{wrapper_name}.v"
+    instance_module = dut_name
+    analog_text = dut_text
+    analog_module = dut_name
+    if wrapper_file.is_file():
+        instance_module = wrapper_name
+        analog_text = wrapper_file.read_text()
+        analog_module = wrapper_name
+    analog_infra_ports = detect_analog_infra_ports(analog_text, analog_module)
+    config = build_config_from_ports(dut_name, ports)
     check_mapping(config, ports)
 
     pin_in_width = calc_bus_width(config["pin_in"])
     pin_out_width = calc_bus_width(config["pin_out"])
 
     outputs = {
-        root / "Verilog" / "ate" / "DUT.v": emit_wrapper(config, ports, pin_in_width, pin_out_width),
+        root / "Verilog" / "ate" / "DUT.v": emit_wrapper(
+            config,
+            ports,
+            pin_in_width,
+            pin_out_width,
+            analog_infra_ports,
+            instance_module,
+        ),
         root / "Verilog" / "pin" / "PinInAdapter.v": emit_pin_in_adapter(config, ports, pin_in_width),
         root / "Verilog" / "pin" / "PinOutAdapter.v": emit_pin_out_adapter(config, ports, pin_out_width),
         root / "C++" / "generated" / "AteSocketConfig.h": emit_ate_socket_config(source_label, pin_in_width, pin_out_width),

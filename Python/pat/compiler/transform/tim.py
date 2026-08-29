@@ -1,12 +1,37 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from fractions import Fraction
+
 from lark import Transformer, v_args
 
 from Python.pat.compiler.definitions import SingleEdgeTimingDef, TimingDef, TwoEdgeTimingDef
+from Python.pat.physical import TIME, Time, parse_time_literal
 
 
-def _field_dict(name: str, fields) -> dict[str, int]:
-    result: dict[str, int] = {}
+@dataclass(frozen=True)
+class _PeriodRatio:
+    value: Fraction
+
+
+@dataclass(frozen=True)
+class _SingleEdgeRaw:
+    edge: Time | _PeriodRatio
+    base: Time | _PeriodRatio
+
+
+@dataclass(frozen=True)
+class _TwoEdgeRaw:
+    edge_1: Time | _PeriodRatio
+    edge_2: Time | _PeriodRatio
+    base: Time | _PeriodRatio
+
+
+_TimingValue = Time | _PeriodRatio
+
+
+def _field_dict(name: str, fields) -> dict[str, _TimingValue]:
+    result: dict[str, _TimingValue] = {}
     for key, value in fields:
         if key in result:
             raise RuntimeError(f"Duplicate {name} timing field {key}")
@@ -14,31 +39,33 @@ def _field_dict(name: str, fields) -> dict[str, int]:
     return result
 
 
-def _require(block_name: str, fields: dict[str, int], key: str) -> int:
+def _require(
+    block_name: str,
+    fields: dict[str, _TimingValue],
+    key: str,
+) -> _TimingValue:
     if key not in fields:
         raise RuntimeError(f"{block_name} timing block requires {key}")
     return fields[key]
 
 
-def _single_edge_def(block_name: str, fields: dict[str, int]) -> SingleEdgeTimingDef:
-    return SingleEdgeTimingDef(
+def _single_edge_raw(block_name: str, fields: dict[str, _TimingValue]) -> _SingleEdgeRaw:
+    return _SingleEdgeRaw(
         edge=_require(block_name, fields, "edge"),
-        base=fields.get("base", 0),
-        open=fields.get("open", 1),
+        base=fields.get("base", TIME.PS(0)),
     )
 
 
-def _two_edge_def(block_name: str, fields: dict[str, int]) -> TwoEdgeTimingDef:
-    return TwoEdgeTimingDef(
+def _two_edge_raw(block_name: str, fields: dict[str, _TimingValue]) -> _TwoEdgeRaw:
+    return _TwoEdgeRaw(
         edge_1=_require(block_name, fields, "edge_1"),
         edge_2=_require(block_name, fields, "edge_2"),
-        base=fields.get("base", 0),
-        open=fields.get("open", 1),
+        base=fields.get("base", TIME.PS(0)),
     )
 
 
-def _variant_dict(name: str, variants) -> dict[str, dict[str, int]]:
-    result: dict[str, dict[str, int]] = {}
+def _variant_dict(name: str, variants) -> dict[str, dict[str, _TimingValue]]:
+    result: dict[str, dict[str, _TimingValue]] = {}
     for variant_name, fields in variants:
         if variant_name in result:
             raise RuntimeError(f"Duplicate {name} timing variant @{variant_name}")
@@ -50,29 +77,31 @@ def _variant_dict(name: str, variants) -> dict[str, dict[str, int]]:
 class TimToIR(Transformer):
     def NAME(self, token): return token.value
     def VARIANT_NAME(self, token): return token.value[1:]
-    def UINT(self, token): return int(token)
-    def SINT(self, token): return int(token)
+    def TIME_UINT(self, token): return parse_time_literal(str(token))
+    def TIME_SINT(self, token): return parse_time_literal(str(token))
+    def RATIO_UINT(self, token): return _PeriodRatio(Fraction(str(token)))
+    def RATIO_SINT(self, token): return _PeriodRatio(Fraction(str(token)))
+
+    def absolute_time(self, value):
+        return value
+
+    def period_ratio(self, value):
+        return value
 
     def period_spec(self, prd):
-        return ("prd", int(prd))
+        return ("prd", prd)
 
     def edge_spec(self, edge):
-        return ("edge", int(edge))
+        return ("edge", edge)
 
     def edge_1_spec(self, edge):
-        return ("edge_1", int(edge))
+        return ("edge_1", edge)
 
     def edge_2_spec(self, edge):
-        return ("edge_2", int(edge))
+        return ("edge_2", edge)
 
     def base_spec(self, base):
-        return ("base", int(base))
-
-    def open_spec(self, open_value):
-        value = int(open_value)
-        if value not in (0, 1):
-            raise RuntimeError("timing OPEN must be 0 or 1")
-        return ("open", value)
+        return ("base", base)
 
     def single_edge_field_list(self, *fields):
         return _field_dict("single-edge", fields)
@@ -100,22 +129,22 @@ class TimToIR(Transformer):
 
     def nrz_block(self, content):
         variants = content if _is_variant_map(content) else {"default": content}
-        return ("nrz", {name: _single_edge_def(f"NRZ@{name}", fields) for name, fields in variants.items()})
+        return ("nrz", {name: _single_edge_raw(f"NRZ@{name}", fields) for name, fields in variants.items()})
 
     def rz_block(self, content):
         variants = content if _is_variant_map(content) else {"default": content}
-        return ("rz", {name: _two_edge_def(f"RZ@{name}", fields) for name, fields in variants.items()})
+        return ("rz", {name: _two_edge_raw(f"RZ@{name}", fields) for name, fields in variants.items()})
 
     def rzz_block(self, content):
         variants = content if _is_variant_map(content) else {"default": content}
-        return ("rzz", {name: _two_edge_def(f"RZZ@{name}", fields) for name, fields in variants.items()})
+        return ("rzz", {name: _two_edge_raw(f"RZZ@{name}", fields) for name, fields in variants.items()})
 
     def stb_block(self, content):
         variants = content if _is_variant_map(content) else {"default": content}
-        return ("stb", {name: _single_edge_def(f"STB@{name}", fields) for name, fields in variants.items()})
+        return ("stb", {name: _single_edge_raw(f"STB@{name}", fields) for name, fields in variants.items()})
 
     def timing_set(self, name, *items):
-        fields: dict[str, int | dict] = {}
+        fields: dict[str, Time | dict] = {}
         for key, value in items:
             if key in fields:
                 raise RuntimeError(f"Duplicate timing item {key} in {name}")
@@ -126,7 +155,7 @@ class TimToIR(Transformer):
         rz = fields.get("rz")
         rzz = fields.get("rzz")
         stb = fields.get("stb")
-        if not isinstance(prd, int):
+        if not isinstance(prd, Time):
             raise RuntimeError(f"Timing {name} requires PRD")
         if not isinstance(nrz, dict):
             raise RuntimeError(f"Timing {name} requires NRZ block")
@@ -140,10 +169,10 @@ class TimToIR(Transformer):
         return TimingDef(
             name=str(name),
             prd=prd,
-            nrz=nrz,
-            rz=rz,
-            rzz=rzz,
-            stb=stb,
+            nrz=_resolve_single_variants(nrz, prd),
+            rz=_resolve_two_variants(rz, prd),
+            rzz=_resolve_two_variants(rzz, prd),
+            stb=_resolve_single_variants(stb, prd),
         )
 
     def timing_block(self, *timings):
@@ -152,3 +181,37 @@ class TimToIR(Transformer):
 
 def _is_variant_map(content) -> bool:
     return isinstance(content, dict) and all(isinstance(value, dict) for value in content.values())
+
+
+def _resolve_value(value: _TimingValue, prd: Time) -> Time:
+    if isinstance(value, Time):
+        return value
+    scaled_ps = Fraction(prd.as_ps()) * value.value
+    return TIME.PS(scaled_ps.numerator // scaled_ps.denominator)
+
+
+def _resolve_single_variants(
+    variants: dict[str, _SingleEdgeRaw],
+    prd: Time,
+) -> dict[str, SingleEdgeTimingDef]:
+    return {
+        name: SingleEdgeTimingDef(
+            edge=_resolve_value(value.edge, prd),
+            base=_resolve_value(value.base, prd),
+        )
+        for name, value in variants.items()
+    }
+
+
+def _resolve_two_variants(
+    variants: dict[str, _TwoEdgeRaw],
+    prd: Time,
+) -> dict[str, TwoEdgeTimingDef]:
+    return {
+        name: TwoEdgeTimingDef(
+            edge_1=_resolve_value(value.edge_1, prd),
+            edge_2=_resolve_value(value.edge_2, prd),
+            base=_resolve_value(value.base, prd),
+        )
+        for name, value in variants.items()
+    }

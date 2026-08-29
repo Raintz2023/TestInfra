@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import dataclass
 
 from lark import Transformer, v_args
 
-from Python.pat.compiler.definitions import PinDef
+from Python.pat.compiler.definitions import PinDef, PowerDef
 from Python.pat.compiler.parser import parse_soc
 
 PIN_IN_COUNT = 31
 PIN_OUT_COUNT = 19
 SUPPORTED_INPUT_WAVEFORMS = {"NRZ", "RZ", "RZZ"}
 SUPPORTED_OUTPUT_WAVEFORMS = {"STB"}
+
+
+@dataclass(frozen=True)
+class SocDef:
+    pins: list[PinDef]
+    powers: list[PowerDef]
 
 
 @v_args(inline=True)
@@ -31,9 +38,16 @@ class SocToIR(Transformer):
     def wave_ref(self, waveform, variant=None):
         return str(waveform).upper(), "default" if variant is None else str(variant)
 
-    def input_entry(self, name, pin_range, waveform, default_value):
+    def supply_ref(self, name, variant=None):
+        return str(name), "default" if variant is None else str(variant)
+
+    def supply_field(self, supply):
+        return supply
+
+    def input_entry(self, name, pin_range, waveform, default_value, supply=None):
         lsb, msb = pin_range
         waveform_name, timing_variant = waveform
+        supply_name, voltage_variant = (None, "default") if supply is None else supply
         return PinDef(
             name=str(name),
             input=True,
@@ -42,11 +56,14 @@ class SocToIR(Transformer):
             waveform=waveform_name,
             timing_variant=timing_variant,
             default_value=int(default_value),
+            supply=supply_name,
+            voltage_variant=voltage_variant,
         )
 
-    def output_entry(self, name, pin_range, waveform):
+    def output_entry(self, name, pin_range, waveform, supply=None):
         lsb, msb = pin_range
         waveform_name, timing_variant = waveform
+        supply_name, voltage_variant = (None, "default") if supply is None else supply
         return PinDef(
             name=str(name),
             input=False,
@@ -55,13 +72,26 @@ class SocToIR(Transformer):
             waveform=waveform_name,
             timing_variant=timing_variant,
             default_value=0,
+            supply=supply_name,
+            voltage_variant=voltage_variant,
+        )
+
+    def power_entry(self, name, supply):
+        supply_name, voltage_variant = supply
+        return PowerDef(
+            name=str(name),
+            supply=str(supply_name),
+            voltage_variant=str(voltage_variant),
         )
 
     def socket_def(self, *entries):
-        return list(entries)
+        pins = [entry for entry in entries if isinstance(entry, PinDef)]
+        powers = [entry for entry in entries if isinstance(entry, PowerDef)]
+        return SocDef(pins=pins, powers=powers)
 
 
-def _validate_soc_pins(pins: list[PinDef], soc_path: Path) -> None:
+def _validate_soc(soc: SocDef, soc_path: Path) -> None:
+    pins = soc.pins
     if not pins:
         raise RuntimeError(f"No PIN definitions found in {soc_path}")
 
@@ -98,13 +128,21 @@ def _validate_soc_pins(pins: list[PinDef], soc_path: Path) -> None:
                 raise RuntimeError(f"Pin {pin.name} overlaps {exist_name}: {soc_path}")
         existing_ranges.append(current_range)
 
+    power_names: set[str] = set()
+    for power in soc.powers:
+        if power.name in power_names:
+            raise RuntimeError(f"Duplicate POWER {power.name}: {soc_path}")
+        power_names.add(power.name)
+        if not power.supply:
+            raise RuntimeError(f"POWER {power.name} requires SUP: {soc_path}")
 
-def parse_soc_file(soc_path: Path) -> list[PinDef]:
+
+def parse_soc_file(soc_path: Path) -> SocDef:
     try:
         tree = parse_soc(soc_path.read_text(encoding="utf-8", errors="replace"))
-        pins = SocToIR().transform(tree)
+        soc = SocToIR().transform(tree)
     except Exception as exc:
         raise RuntimeError(f"Unsupported SOC file: {soc_path}") from exc
 
-    _validate_soc_pins(pins, soc_path)
-    return pins
+    _validate_soc(soc, soc_path)
+    return soc

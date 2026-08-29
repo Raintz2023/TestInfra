@@ -3,16 +3,16 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 from enum import Enum
+from pathlib import Path
 
 
 class RegisterRole(str, Enum):
     LOOP = "LOOP"
     ARG = "ARG"
-    DELAY = "DELAY"
     EXPECT = "EXPECT"
 
 
-ALLOWED_REGISTER_FAMILIES = {"LOOP", "ADDR", "X", "Y", "Z", "TEMP", "DELAY", "DATA"}
+ALLOWED_REGISTER_FAMILIES = {"LOOP", "ADDR", "X", "Y", "Z", "TEMP", "DATA"}
 REGISTER_FAMILY_ROLES = {
     "LOOP": RegisterRole.LOOP,
     "ADDR": RegisterRole.ARG,
@@ -20,7 +20,6 @@ REGISTER_FAMILY_ROLES = {
     "Y": RegisterRole.ARG,
     "Z": RegisterRole.ARG,
     "TEMP": RegisterRole.ARG,
-    "DELAY": RegisterRole.DELAY,
     "DATA": RegisterRole.EXPECT,
 }
 SIGNED_REGISTER_FAMILIES = {"X", "Y", "TEMP"}
@@ -38,6 +37,7 @@ class RegisterBinding:
     scalar_alias: bool = False
     role: RegisterRole = RegisterRole.ARG
     signed: bool = False
+    default_value: int = 0
 
 
 @dataclass(frozen=True)
@@ -106,6 +106,13 @@ class RegisterSet:
                 families[binding.family] = binding.family
         return families
 
+    @property
+    def defaults_by_internal(self) -> dict[str, int]:
+        return {
+            binding.internal_name: binding.default_value
+            for binding in self.bindings
+        }
+
     def canonical_name(self, name: str) -> str:
         for binding in self.bindings:
             if name == binding.internal_name or name == binding.external_name:
@@ -135,7 +142,7 @@ class RegisterSet:
 
     @staticmethod
     def legacy() -> "RegisterSet":
-        names = ("X", "Y", "Z", "ADDR", "VAL", "TEMP", "DATA", "DELAY")
+        names = ("LOOP", "X", "Y", "Z", "ADDR", "TEMP", "DATA")
         bindings = []
         for name in names:
             role = REGISTER_FAMILY_ROLES.get(name, RegisterRole.ARG)
@@ -343,8 +350,32 @@ def _parse_alias_lines(body: str) -> dict[str, str]:
         external = right.strip()
         _validate_name(internal, "register alias source")
         _validate_name(external, "register alias")
+        if internal in aliases:
+            raise ValueError(f"Duplicate REGISTER alias source: {internal}")
         aliases[internal] = external
     return aliases
+
+
+def _parse_default_lines(body: str) -> list[tuple[str, int]]:
+    defaults: list[tuple[str, int]] = []
+    for line in body.splitlines():
+        raw = _strip_comment(line).rstrip(",").strip()
+        if not raw:
+            continue
+        left, sep, right = raw.partition("=")
+        if not sep:
+            raise ValueError(f"REGISTER DEFAULT line must use '=', got: {raw}")
+        name = left.strip()
+        literal = right.strip()
+        _validate_name(name, "register default")
+        if re.fullmatch(r"[-+]?(?:0[xX][0-9a-fA-F]+|[0-9]+)", literal) is None:
+            raise ValueError(
+                f"REGISTER DEFAULT must use an integer or hex literal, got: {literal}"
+            )
+        signless = literal.lstrip("+-")
+        base = 16 if signless.lower().startswith("0x") else 10
+        defaults.append((name, int(literal, base)))
+    return defaults
 
 
 def _apply_aliases(bindings: list[RegisterBinding], aliases: dict[str, str]) -> list[RegisterBinding]:
@@ -359,12 +390,52 @@ def _apply_aliases(bindings: list[RegisterBinding], aliases: dict[str, str]) -> 
     return updated
 
 
+def _value_bounds(binding: RegisterBinding) -> tuple[int, int]:
+    if binding.width is None:
+        return -(1 << 63), (1 << 63) - 1
+    if binding.signed:
+        return -(1 << (binding.width - 1)), (1 << (binding.width - 1)) - 1
+    return 0, (1 << binding.width) - 1
+
+
+def _apply_defaults(
+    bindings: list[RegisterBinding],
+    defaults: list[tuple[str, int]],
+) -> list[RegisterBinding]:
+    register_set = RegisterSet(tuple(bindings), explicit=True)
+    by_internal = {binding.internal_name: binding for binding in bindings}
+    resolved: dict[str, int] = {}
+    for name, value in defaults:
+        canonical = register_set.canonical_name(name)
+        if canonical not in by_internal:
+            raise ValueError(f"REGISTER default target is not declared: {name}")
+        if canonical in resolved:
+            raise ValueError(
+                f"Duplicate REGISTER default for storage {canonical}: {name}"
+            )
+        binding = by_internal[canonical]
+        minimum, maximum = _value_bounds(binding)
+        if value < minimum or value > maximum:
+            kind = "signed" if binding.signed else "unsigned"
+            raise ValueError(
+                f"REGISTER default {name}={value} overflows {kind} "
+                f"{binding.width} bits"
+            )
+        resolved[canonical] = value
+    return [
+        replace(binding, default_value=resolved.get(binding.internal_name, 0))
+        for binding in bindings
+    ]
+
+
 def _parse_block_register_block(text: str) -> RegisterSet:
     define = _section_body(text, "DEFINE")
     if define is None:
         raise ValueError("REGISTER block must contain DEFINE { ... }")
     aliases = _parse_alias_lines(_section_body(text, "ALIAS") or "")
     bindings = _apply_aliases(_parse_define_lines(define), aliases)
+    defaults = _parse_default_lines(_section_body(text, "DEFAULT") or "")
+    bindings = _apply_defaults(bindings, defaults)
     return _finalize_bindings(bindings)
 
 
@@ -378,6 +449,19 @@ def _finalize_bindings(bindings: list[RegisterBinding]) -> RegisterSet:
             raise ValueError(f"Duplicate internal REGISTER name: {binding.internal_name}")
         seen_external.add(binding.external_name)
         seen_internal.add(binding.internal_name)
+    owners: dict[str, str] = {}
+    for binding in bindings:
+        names = [binding.internal_name, binding.external_name]
+        if binding.scalar_alias:
+            names.append(binding.family)
+        for name in names:
+            owner = owners.get(name)
+            if owner is not None and owner != binding.internal_name:
+                raise ValueError(
+                    f"Duplicate REGISTER name {name}: used by {owner} and "
+                    f"{binding.internal_name}"
+                )
+            owners[name] = binding.internal_name
     return RegisterSet(tuple(bindings), explicit=True)
 
 
@@ -387,3 +471,41 @@ def parse_register_block(text: str | None) -> RegisterSet:
     if re.search(r"\bDEFINE\s*\{", text):
         return _parse_block_register_block(text)
     return _parse_legacy_register_block(text)
+
+
+def parse_register_file(path: str | Path) -> RegisterSet:
+    reg_path = Path(path)
+    text = reg_path.read_text(encoding="utf-8", errors="replace")
+    match = re.search(r"\bREGISTER\s*\{", text)
+    if match is None:
+        raise ValueError(f"reg.pat must contain REGISTER {{ ... }}: {reg_path}")
+    depth = 1
+    position = match.end()
+    start = position
+    while position < len(text) and depth:
+        if text.startswith("//", position):
+            newline = text.find("\n", position)
+            position = len(text) if newline < 0 else newline + 1
+            continue
+        if text[position] == "{":
+            depth += 1
+        elif text[position] == "}":
+            depth -= 1
+        position += 1
+    if depth:
+        raise ValueError(f"Unclosed REGISTER block: {reg_path}")
+    trailing = "\n".join(_strip_comment(line) for line in text[position:].splitlines()).strip()
+    if trailing:
+        raise ValueError(f"Unexpected text after REGISTER block: {reg_path}")
+    registers = parse_register_block(text[start:position - 1])
+    missing_widths = [
+        binding.internal_name
+        for binding in registers.bindings
+        if binding.width is None
+    ]
+    if missing_widths:
+        raise ValueError(
+            "reg.pat requires an explicit width for every register: "
+            + ", ".join(missing_widths)
+        )
+    return registers

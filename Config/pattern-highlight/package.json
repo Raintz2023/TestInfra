@@ -1,14 +1,25 @@
 {
   "name": "pattern-highlight",
   "displayName": "Pattern Highlight",
-  "description": "Syntax highlighting for the custom PAT pattern language.",
-  "version": "0.1.9",
+  "description": "Language support for the TestInfra PAT pattern language.",
+  "version": "0.2.3",
   "publisher": "seagull",
   "engines": {
     "vscode": "^1.80.0"
   },
   "categories": [
     "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:pattern"
+  ],
+  "main": "./extension.js",
+  "files": [
+    "extension.js",
+    "language-configuration.json",
+    "README.md",
+    "snippets",
+    "syntaxes"
   ],
   "contributes": {
     "languages": [
@@ -38,6 +49,27 @@
         "path": "./snippets/pattern.code-snippets"
       }
     ],
+    "configuration": {
+      "title": "Pattern Highlight",
+      "properties": {
+        "patternHighlight.includePaths": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Additional directories used to resolve INCLUDE files."
+        },
+        "patternHighlight.schemaPaths": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Additional directories used to resolve USE schema folders."
+        }
+      }
+    },
     "configurationDefaults": {
       "editor.tokenColorCustomizations": {
         "textMateRules": [

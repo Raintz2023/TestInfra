@@ -5,9 +5,13 @@ socket_def: "SOCKET" socket_entry+ "END"
 
 ?socket_entry: input_entry
              | output_entry
+             | power_entry
 
-input_entry: "IN" NAME "{" "PIN" ":" pin_range "," "WAV" ":" wave_ref "," "DEF" ":" value "}"
-output_entry: "OUT" NAME "{" "PIN" ":" pin_range "," "WAV" ":" wave_ref "}"
+input_entry: "IN" NAME "{" "PIN" ":" pin_range "," "WAV" ":" wave_ref "," "DEF" ":" value supply_field? "}"
+output_entry: "OUT" NAME "{" "PIN" ":" pin_range "," "WAV" ":" wave_ref supply_field? "}"
+power_entry: "POWER" NAME "{" "SUP" ":" supply_ref "}"
+supply_field: "," "SUP" ":" supply_ref
+supply_ref: NAME ("@" VARIANT_NAME)?
 pin_range: INT              -> single_pin
          | "[" INT ":" INT "]" -> range_pin
 wave_ref: WAVE_NAME ("@" VARIANT_NAME)?

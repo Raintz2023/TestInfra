@@ -33,15 +33,14 @@ def _expected_arg_count(command_def: CommandDef) -> int:
     return len(command_def.params)
 
 
-def _register_signature(registers: RegisterSet) -> str:
-    return ", ".join(f"{name}=0" for name in registers.external_names)
-
-
 def _register_init_lines(registers: RegisterSet) -> list[str]:
-    lines: list[str] = []
+    lines = ["    register_values = Reg.ti_values(registers)"]
     for binding in registers.bindings:
+        lines.append(
+            f"    {binding.internal_name} = register_values[{binding.internal_name!r}]"
+        )
         if binding.internal_name != binding.external_name:
-            lines.append(f"    {binding.internal_name} = {binding.external_name}")
+            lines.append(f"    {binding.external_name} = {binding.internal_name}")
         if binding.scalar_alias and binding.family != binding.internal_name:
             lines.append(f"    {binding.family} = {binding.internal_name}")
     return lines
@@ -84,8 +83,6 @@ def _validate_cmd_args(ins: UserCmdCall, command_def: CommandDef, registers: Reg
             role = roles.get(canonical)
             if role is None:
                 raise ValueError(f"command {ins.name} uses undeclared register {name}: {registers.undeclared_name_error(name)}")
-            if role == RegisterRole.DELAY:
-                raise ValueError(f"command {ins.name} cannot pass DELAY as an argument")
             if role == RegisterRole.LOOP:
                 raise ValueError(f"command {ins.name} cannot pass LOOP register as an argument")
             if "SAMPLE" in param_kinds.get(index, set()):
@@ -113,13 +110,18 @@ def _register_check_lines(registers: RegisterSet) -> list[str]:
 
 def _emit_cmd_call(ins: UserCmdCall, command_defs: dict[str, CommandDef], registers: RegisterSet) -> str:
     if ins.name not in command_defs:
-        return f"# TODO unsupported CMD: {ins.name} has no DEF"
+        if ins.name.startswith("VS"):
+            raise ValueError(
+                f"Row-level VOLTAGE command {ins.name} is not supported; "
+                f"declare VOLTAGE = {ins.name} before BEGIN"
+            )
+        raise ValueError(f"Unknown CMD {ins.name}: no COMMAND definition found")
     command_def = command_defs[ins.name]
     expected = _expected_arg_count(command_def)
     if len(ins.args) != expected:
-        return (
-            f"# TODO unsupported CMD: {ins.name} expects {expected} args by DEF, "
-            f"got {len(ins.args)} ({ins.args})"
+        raise ValueError(
+            f"CMD {ins.name} expects {expected} arguments, "
+            f"got {len(ins.args)}: {ins.args}"
         )
 
     _validate_cmd_args(ins, command_def, registers)
@@ -154,11 +156,11 @@ def _emit_system_cmd(ins: SystemCmd,
                      functions: frozenset[str] = frozenset()) -> tuple[str, bool, bool]:
     """Return emitted source, whether it is a compare op, and whether it clears compares."""
     if ins.args:
-        return f"# TODO unsupported SYSTEM CMD args: {ins.name} {ins.args}", False, False
+        raise ValueError(f"System CMD {ins.name} does not accept arguments: {ins.args}")
 
     emitted = _emit_no_arg_system_cmd(ins, timing_names, functions)
     if emitted is None:
-        return f"# TODO unsupported SYSTEM CMD: {ins.name}", False, False
+        raise ValueError(f"Unknown system CMD {ins.name}")
 
     return emitted, ins.name in {"CPA", "CPL"}, ins.name == "CCR"
 
@@ -200,12 +202,17 @@ def emit_python(testflow_list: list[Row],
                 func_name: str = "run",
                 schema_module_name: str | None = None,
                 timing_names: tuple[str, ...] = (),
+                voltage_names: tuple[str, ...] = (),
+                voltage_name: str | None = None,
+                voltage_mode: str | None = None,
                 registers: RegisterSet | None = None,
                 functions: frozenset[str] = frozenset()) -> None:
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     defs = _command_map(command_defs)
     _validate_commands(command_defs)
+    if voltage_name is None or voltage_mode not in {"digital", "analog"}:
+        raise RuntimeError("compiled pattern requires one fixed voltage set and mode")
 
     lines: list[str] = []
     lines.append("# Auto-generated. DO NOT EDIT.")
@@ -214,20 +221,20 @@ def emit_python(testflow_list: list[Row],
     if schema_module_name is None:
         raise RuntimeError("schema_module_name is required for generated patterns")
     lines.append(
-        f"from Python.pat.generated.schema.{schema_module_name} import build_commands, build_socket, build_timings"
+        f"from Python.pat.generated.schema.{schema_module_name} import Reg, build_commands, build_socket, build_timings, build_voltages"
     )
-    lines.append("from Python.pat.runtime import PatternScheduler, validate_timings")
+    lines.append("from Python.pat.runtime import PatternScheduler, validate_timings, validate_voltages")
+    lines.append("")
+    lines.append(f"PATTERN_VOLTAGE_NAME = {voltage_name!r}")
+    lines.append(f"PATTERN_VOLTAGE_MODE = {voltage_mode!r}")
     lines.append("")
 
     registers = registers or RegisterSet.legacy()
     _validate_reserved_runtime_names(registers)
-    defaults = _register_signature(registers)
     signature_parts = ["ate_obj: ate.ATE", "TESTFLOW=1"]
-    if defaults:
-        signature_parts.append(defaults)
     if "DEQUE" in functions:
         signature_parts.append("DEQUE=None")
-    signature_parts.extend(["timings=None", "commands=None"])
+    signature_parts.extend(["timings=None", "commands=None", "voltage=None", "registers=None"])
     lines.append(f"def {func_name}({', '.join(signature_parts)}):")
     lines.append("    def check_register(name, value, width, signed=False):")
     lines.append("        if signed:")
@@ -264,9 +271,15 @@ def emit_python(testflow_list: list[Row],
     lines.append("    socket = build_socket()")
     lines.append("    commands = build_commands() if commands is None else commands")
     lines.append("    timings = build_timings() if timings is None else timings")
+    lines.append("    voltage = build_voltages()[PATTERN_VOLTAGE_NAME] if voltage is None else voltage")
     lines.append("    validate_timings(timings)")
+    lines.append("    validate_voltages({PATTERN_VOLTAGE_NAME: voltage})")
+    lines.append("    if voltage.name != PATTERN_VOLTAGE_NAME:")
+    lines.append("        raise RuntimeError(f'pattern selects {PATTERN_VOLTAGE_NAME}; got {voltage.name}')")
+    lines.append("    if voltage.digital != (PATTERN_VOLTAGE_MODE == 'digital'):")
+    lines.append("        raise RuntimeError(f'VOLTAGE mode mismatch for {PATTERN_VOLTAGE_NAME}')")
     lines.append("    socket.configure(ate_obj)")
-    lines.append("    scheduler = PatternScheduler(ate_obj, socket, commands, timings)")
+    lines.append("    scheduler = PatternScheduler(ate_obj, socket, commands, timings, voltage)")
     lines.append("    row_timing_name = 'TS0'")
     lines.append("    def set_row_timing(name):")
     lines.append("        nonlocal row_timing_name")
@@ -281,7 +294,7 @@ def emit_python(testflow_list: list[Row],
     lines.append("    def cmd(name, *values):")
     lines.append(f"        scheduler.cmd(row_timing_name, name, values, {{{context_items}}})")
     lines.append("    def idle_rows(rows):")
-    lines.append("        scheduler.idle_rows(rows)")
+    lines.append("        scheduler.idle_rows(rows, row_timing_name)")
     lines.append("        finish_vector_row()")
 
     validate_has_rtn(ir_list)
@@ -305,6 +318,7 @@ def emit_python(testflow_list: list[Row],
                                           defs=defs,
                                           registers=registers,
                                           timing_names=timing_names,
+                                          voltage_names=voltage_names,
                                           register_widths=registers.widths,
                                           functions=functions,
                                           stop_pc=None,
@@ -330,6 +344,7 @@ def trans_line(pc_init: int,
                defs: dict[str, CommandDef],
                registers: RegisterSet,
                timing_names: tuple[str, ...] = (),
+               voltage_names: tuple[str, ...] = (),
                register_widths: dict[str, int] | None = None,
                functions: frozenset[str] = frozenset(),
                stop_pc: int | None = None,
@@ -422,6 +437,7 @@ def trans_line(pc_init: int,
                                                    defs=defs,
                                                    registers=registers,
                                                    timing_names=timing_names,
+                                                   voltage_names=voltage_names,
                                                    register_widths=register_widths,
                                                    functions=functions,
                                                    stop_pc=recursive_stop_pc,
@@ -478,7 +494,7 @@ def trans_line(pc_init: int,
 
         else:
             flush_idle()
-            lines.append(f"{indent_extra}    # TODO unsupported IR: {ins!r}")
+            raise RuntimeError(f"Unsupported IR during emission: {ins!r}")
 
     flush_idle()
 

@@ -10,9 +10,9 @@ module PinIn #(
 
     input wire [PIN_NUM-1:0] DRIV,
     input wire [PIN_NUM*WIDTH-1:0] DRIV_IN,
+    input wire [PIN_NUM*WIDTH-1:0] DRIV_RETURN_IN,
     input wire [PIN_NUM*DELAY_W-1:0] DRIV_DELAY,
     input wire [PIN_NUM*DELAY_W-1:0] DRIV_DURATION,
-
     output wire [PIN_NUM*WIDTH-1:0] DRIV_OUT,
     output wire [PIN_NUM-1:0] DRIV_ALERT,
     output wire [PIN_NUM*OFFSET_W-1:0] DRIV_CNTS
@@ -24,11 +24,13 @@ for (i = 0; i < PIN_NUM; i = i + 1) begin : PIN
 
     wire driv_i;
     wire [WIDTH-1:0] driv_in_i;
+    wire [WIDTH-1:0] driv_return_in_i;
     wire [DELAY_W-1:0] delay_i;
     wire [DELAY_W-1:0] duration_i;
 
     assign driv_i     = DRIV[i];
     assign driv_in_i  = DRIV_IN[i*WIDTH +: WIDTH];
+    assign driv_return_in_i = DRIV_RETURN_IN[i*WIDTH +: WIDTH];
     assign delay_i    = DRIV_DELAY[i*DELAY_W +: DELAY_W];
     assign duration_i = DRIV_DURATION[i*DELAY_W +: DELAY_W];
 
@@ -37,11 +39,16 @@ for (i = 0; i < PIN_NUM; i = i + 1) begin : PIN
     wire [OFFSET_W-1:0] cnt_i;
 
     // 实例
-    PinInDriver driver (
+    PinInDriver #(
+        .WIDTH(WIDTH),
+        .DEPTH(DEPTH),
+        .DELAY_W(DELAY_W)
+    ) driver (
         .CLK(CLK),
         .RST_N(RST_N),
         .DRIV(driv_i),
         .DRIV_IN(driv_in_i),
+        .DRIV_RETURN_IN(driv_return_in_i),
         .DRIV_DELAY(delay_i),
         .DRIV_DURATION(duration_i),
         .DRIV_OUT(driv_out_i),

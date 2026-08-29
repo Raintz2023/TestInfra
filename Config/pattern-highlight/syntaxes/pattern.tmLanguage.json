@@ -25,6 +25,9 @@
       "include": "#timing-blocks"
     },
     {
+      "include": "#voltage-blocks"
+    },
+    {
       "include": "#socket-blocks"
     },
     {
@@ -50,6 +53,15 @@
     "comments": {
       "patterns": [
         {
+          "name": "meta.directive.voltage.pattern",
+          "match": "^\\s*(VOLTAGE)\\s*(=)\\s*(VS[A-Z0-9_]*)\\s*$",
+          "captures": {
+            "1": { "name": "keyword.control.pattern" },
+            "2": { "name": "keyword.operator.assignment.pattern" },
+            "3": { "name": "constant.language.pattern" }
+          }
+        },
+        {
           "name": "comment.line.double-slash.pattern",
           "match": "//.*$"
         },
@@ -74,7 +86,7 @@
       "patterns": [
         {
           "name": "meta.directive.use.pattern",
-          "match": "^\\s*(USE|INCLUDE)\\b\\s+([^\\s/][^\\s]*|\\.?\\.?/[^\\s]+)",
+          "match": "^\\s*(USE|INCLUDE)\\b\\s+(\\S+)",
           "captures": {
             "1": {
               "name": "keyword.control.pattern"
@@ -86,7 +98,7 @@
         },
         {
           "name": "keyword.control.pattern",
-          "match": "\\b(DEFINE|SOCKET|TIMING|BEGIN|END)\\b"
+          "match": "\\b(COMMAND|DEFINE|DEFAULT|SOCKET|TIMING|VOLTAGE|REGISTER|FUNCTION|ALIAS|BEGIN|END)\\b"
         }
       ]
     },
@@ -138,15 +150,12 @@
       "patterns": [
         {
           "name": "meta.command.definition.pattern",
-          "begin": "\\b(CMD)\\s+([A-Z][A-Z0-9_]*)\\s*(\\()",
+          "begin": "^\\s*([A-Z][A-Z0-9_]*)\\s*(\\()(?=[^)]*\\)\\s*\\{)",
           "beginCaptures": {
             "1": {
-              "name": "keyword.control.pattern"
+              "name": "entity.name.function.pattern"
             },
             "2": {
-              "name": "constant.language.pattern"
-            },
-            "3": {
               "name": "punctuation.definition.parameters.begin.pattern"
             }
           },
@@ -169,7 +178,7 @@
         },
         {
           "name": "meta.pin.action.pattern",
-          "match": "\\b(DRIVE|SAMPLE)\\b\\s+([A-Z][A-Z0-9_]*)",
+          "match": "\\b(DRIVE|SAMPLE|PULSE)\\b\\s+([A-Z][A-Z0-9_]*)",
           "captures": {
             "1": {
               "name": "keyword.control.pattern"
@@ -181,11 +190,11 @@
         },
         {
           "name": "keyword.control.pattern",
-          "match": "\\b(DRIVE|SAMPLE)\\b"
+          "match": "\\b(DRIVE|SAMPLE|PULSE)\\b"
         },
         {
           "name": "entity.name.type.pattern",
-          "match": "\\b(DELAY)\\b"
+          "match": "\\b(DELAY|DEQUE)\\b"
         }
       ]
     },
@@ -193,7 +202,7 @@
       "patterns": [
         {
           "name": "meta.socket.entry.pattern",
-          "begin": "^\\s*(IN|OUT)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\{)",
+          "begin": "^\\s*(IN|OUT|POWER)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\{)",
           "beginCaptures": {
             "1": {
               "name": "keyword.control.pattern"
@@ -220,11 +229,15 @@
             },
             {
               "name": "support.type.property-name.pattern",
-              "match": "\\b(PIN|WAV|DEF|EXP)\\b(?=\\s*:)"
+              "match": "\\b(PIN|WAV|DEF|SUP)\\b(?=\\s*:)"
             },
             {
               "name": "constant.numeric.pattern",
-              "match": "\\b(NRZ|RZZ|STB)\\b(?!\\s*:)"
+              "match": "\\b(NRZ|RZ|RZZ|STB)\\b(?!\\s*:)"
+            },
+            {
+              "name": "entity.name.tag.pattern",
+              "match": "@[A-Za-z_][A-Za-z0-9_]*"
             },
             {
               "include": "#punctuation"
@@ -233,23 +246,67 @@
         },
         {
           "name": "keyword.control.pattern",
-          "match": "\\b(IN|OUT)\\b"
+          "match": "\\b(IN|OUT|POWER)\\b"
         },
         {
           "name": "support.type.property-name.pattern",
-          "match": "\\b(PIN|WAV|DEF|EXP)\\b(?=\\s*:)"
+          "match": "\\b(PIN|WAV|DEF|SUP)\\b(?=\\s*:)"
         }
       ]
     },
     "timing-blocks": {
       "patterns": [
         {
+          "name": "meta.physical.time.pattern",
+          "match": "(-?[0-9]+(?:\\.[0-9]+)?)(PS|NS|US|MS|S)\\b",
+          "captures": {
+            "1": { "name": "constant.numeric.pattern" },
+            "2": { "name": "support.type.unit.pattern" }
+          }
+        },
+        {
           "name": "support.type.property-name.pattern",
-          "match": "\\b(PRD|NRZ|NRZ_BASE|RZZ_RISE|RZZ_FALL|RZZ_BASE|STB|STB_BASE)\\b(?=\\s*:)"
+          "match": "\\b(PRD|EDGE|EDGE_1|EDGE_2|BASE)\\b(?=\\s*:)"
+        },
+        {
+          "name": "storage.type.pattern",
+          "match": "\\b(NRZ|RZ|RZZ|STB)\\b(?=\\s*\\{)"
         },
         {
           "name": "constant.language.pattern",
           "match": "\\bTS[A-Z0-9_]*\\b"
+        },
+        {
+          "name": "entity.name.tag.pattern",
+          "match": "@[A-Za-z_][A-Za-z0-9_]*"
+        }
+      ]
+    },
+    "voltage-blocks": {
+      "patterns": [
+        {
+          "name": "meta.physical.voltage.pattern",
+          "match": "(-?[0-9]+(?:\\.[0-9]+)?)(UV|MV|V)\\b",
+          "captures": {
+            "1": { "name": "constant.numeric.pattern" },
+            "2": { "name": "support.type.unit.pattern" }
+          }
+        },
+        {
+          "name": "support.type.property-name.pattern",
+          "match": "\\b(VIL|VIH|VOL|VOH|VDC)\\b(?=\\s*:)"
+        },
+        {
+          "name": "storage.type.pattern",
+          "match": "\\b(VIN|VOUT)\\b(?=\\s*\\{)"
+        },
+        {
+          "name": "constant.language.pattern",
+          "match": "\\bVS[A-Z0-9_]*\\b"
+        },
+        {
+          "name": "entity.name.tag.pattern",
+          "match": "@[A-Za-z_][A-Za-z0-9_]*"
         }
       ]
     },
@@ -269,7 +326,7 @@
         },
         {
           "name": "constant.language.pattern",
-          "match": "\\b(CMD|CPA|CPL|CCR|ALERT|TS[A-Z0-9_]*)\\b"
+          "match": "\\b(CPA|CPL|CCR|ALERT|POP|TS[A-Z0-9_]*)\\b"
         }
       ]
     },
@@ -285,8 +342,8 @@
           }
         },
         {
-          "name": "constant.language.pattern",
-          "match": "\\b(MRWR|MRRD|WR|RD|DRV|SMP|SMP_MR|RST)\\b"
+          "name": "support.function.pattern",
+          "match": "\\b(CPA|CPL|CCR|ALERT|POP|TS[A-Z0-9_]*)\\b"
         }
       ]
     },
@@ -322,7 +379,11 @@
         },
         {
           "name": "constant.numeric.decimal.pattern",
-          "match": "\\b\\d+\\b"
+          "match": "(?<![A-Za-z0-9_])-?\\b\\d+\\b"
+        },
+        {
+          "name": "constant.language.boolean.pattern",
+          "match": "\\b(true|false|TRUE|FALSE)\\b"
         },
         {
           "name": "constant.language.pattern",

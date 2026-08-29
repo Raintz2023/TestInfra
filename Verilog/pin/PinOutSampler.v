@@ -8,9 +8,11 @@ module PinOutSampler #(
 
     input  wire               SAMP,
     input  wire [WIDTH-1:0]   SAMP_IN,
+    input  wire [WIDTH-1:0]   SAMP_VALID_IN,
     input  wire [DELAY_W-1:0] SAMP_DELAY,
 
     output reg  [WIDTH-1:0]   SAMP_OUT,
+    output reg  [WIDTH-1:0]   SAMP_VALID_OUT,
     output reg                SAMP_ALERT
 );
 
@@ -25,6 +27,7 @@ module PinOutSampler #(
             phase_counter <= 32'd0;
             SAMP_ALERT <= 1'b0;
             SAMP_OUT   <= {WIDTH{1'b0}};
+            SAMP_VALID_OUT <= {WIDTH{1'b0}};
             for (i = 0; i < DEPTH; i = i + 1) begin
                 ev_valid[i] <= 1'b0;
                 ev_due[i] <= 32'd0;
@@ -33,11 +36,13 @@ module PinOutSampler #(
         end else begin
             SAMP_ALERT <= 1'b0;
             SAMP_OUT   <= {WIDTH{1'b0}};
+            SAMP_VALID_OUT <= {WIDTH{1'b0}};
 
             for (i = 0; i < DEPTH; i = i + 1) begin
                 if (ev_valid[i] && (ev_due[i] == phase_counter)) begin
                     SAMP_ALERT <= 1'b1;
                     SAMP_OUT   <= SAMP_IN;
+                    SAMP_VALID_OUT <= SAMP_VALID_IN;
                     ev_valid[i] <= 1'b0;
                 end
             end
@@ -46,6 +51,7 @@ module PinOutSampler #(
                 if (SAMP_DELAY == 32'd0) begin
                     SAMP_ALERT <= 1'b1;
                     SAMP_OUT   <= SAMP_IN;
+                    SAMP_VALID_OUT <= SAMP_VALID_IN;
                 end else begin
                     /* verilator lint_off BLKSEQ */
                     free_idx = -1;

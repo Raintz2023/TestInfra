@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <iostream>
 #include <algorithm>
+#include <limits>
 #include <stdexcept>
 #include <type_traits>
 
@@ -73,8 +74,28 @@ std::vector<uint32_t> wideBusToWords(const WideBus& bus) {
     return words;
 }
 
-void setScalarBit(uint32_t& bus, int bit, bool value) {
-    const uint32_t mask = 1U << bit;
+template <typename WideBus>
+uint32_t getWideField(const WideBus& bus, int lsb, int width) {
+    uint32_t value = 0;
+    for (int i = 0; i < width; ++i) {
+        bool bit;
+        if constexpr (std::is_integral_v<WideBus>) {
+            bit = ((bus >> (lsb + i)) & 1U) != 0U;
+        } else {
+            const std::size_t word = static_cast<std::size_t>((lsb + i) / 32);
+            const int offset = (lsb + i) % 32;
+            bit = ((bus[word] >> offset) & 1U) != 0U;
+        }
+        if (bit) {
+            value |= 1U << i;
+        }
+    }
+    return value;
+}
+
+template <typename Scalar>
+void setScalarBit(Scalar& bus, int bit, bool value) {
+    const Scalar mask = static_cast<Scalar>(1U << bit);
     if (value) {
         bus |= mask;
     } else {
@@ -112,6 +133,7 @@ ATE::ATE(std::string wave_name, bool trace_enable, uint32_t top_data_init)
     socketp_->ATE_CLK = 0;
     socketp_->ATE_RST_N = 0;
     socketp_->ALERT = 0;
+    apply_voltage_configs_();
     clear_driv_();
     clear_samp_();
 
@@ -244,7 +266,7 @@ void ATE::advance_to_phase(uint64_t target_phase) {
 
 // Public full timing-period advance. This is the vector-cycle primitive.
 void ATE::advance_period() {
-    for (uint32_t i = 0; i < timing_.prd; ++i) {
+    for (uint64_t i = 0; i < timing_.prd; ++i) {
         advance_phase();
     }
     ++cycle_;
@@ -444,6 +466,197 @@ void ATE::configure_output_pin(int lsb, int width, uint32_t default_value) {
         .width = width,
         .default_value = default_value,
     });
+}
+
+void ATE::validate_ate_input_voltage_config_(const AteInputVoltageConfig& config) const {
+    if (config.vil_uv >= config.vih_uv) {
+        throw std::invalid_argument("ATE input voltage config requires VIL < VIH");
+    }
+}
+
+void ATE::validate_ate_output_voltage_config_(const AteOutputVoltageConfig& config) const {
+    if (config.vol_uv > config.voh_uv) {
+        throw std::invalid_argument("ATE output voltage config requires VOL <= VOH");
+    }
+}
+
+void ATE::validate_dut_output_interface_config_(const DutOutputInterfaceConfig& config) const {
+    if (config.low_uv >= config.high_uv) {
+        throw std::invalid_argument("DUT output interface requires LOW < HIGH");
+    }
+    if (config.rise_step_uv == 0 || config.fall_step_uv == 0) {
+        throw std::invalid_argument("DUT output slew steps must be greater than zero");
+    }
+}
+
+void ATE::validate_dut_input_interface_config_(const DutInputInterfaceConfig& config) const {
+    if (config.rise_step_uv == 0 || config.fall_step_uv == 0) {
+        throw std::invalid_argument("DUT input slew steps must be greater than zero");
+    }
+}
+
+void ATE::configure_ate_input_voltage_pin(int pin, const AteInputVoltageConfig& config) {
+    validate_pin_index_(pin, kPinInCount, "ATE input voltage pin");
+    validate_ate_input_voltage_config_(config);
+    ate_input_voltage_configs_[static_cast<std::size_t>(pin)] = config;
+    apply_voltage_configs_();
+}
+
+void ATE::configure_ate_input_voltage_field(int lsb,
+                                            int width,
+                                            const AteInputVoltageConfig& config) {
+    validate_field_(lsb, width, kPinInCount, "ATE input voltage field");
+    validate_ate_input_voltage_config_(config);
+    for (int pin = lsb; pin < lsb + width; ++pin) {
+        ate_input_voltage_configs_[static_cast<std::size_t>(pin)] = config;
+    }
+    apply_voltage_configs_();
+}
+
+void ATE::configure_ate_output_voltage_pin(int pin, const AteOutputVoltageConfig& config) {
+    validate_pin_index_(pin, kPinOutCount, "ATE output voltage pin");
+    validate_ate_output_voltage_config_(config);
+    ate_output_voltage_configs_[static_cast<std::size_t>(pin)] = config;
+    apply_voltage_configs_();
+}
+
+void ATE::configure_ate_output_voltage_field(int lsb,
+                                             int width,
+                                             const AteOutputVoltageConfig& config) {
+    validate_field_(lsb, width, kPinOutCount, "ATE output voltage field");
+    validate_ate_output_voltage_config_(config);
+    for (int pin = lsb; pin < lsb + width; ++pin) {
+        ate_output_voltage_configs_[static_cast<std::size_t>(pin)] = config;
+    }
+    apply_voltage_configs_();
+}
+
+void ATE::configure_dut_input_interface_pin(int pin, const DutInputInterfaceConfig& config) {
+    configure_dut_input_interface_field(pin, 1, config);
+}
+
+void ATE::configure_dut_input_interface_field(int lsb,
+                                              int width,
+                                              const DutInputInterfaceConfig& config) {
+    validate_field_(lsb, width, kPinInCount, "DUT input interface field");
+    validate_dut_input_interface_config_(config);
+    for (int pin = lsb; pin < lsb + width; ++pin) {
+        dut_input_interface_configs_[static_cast<std::size_t>(pin)] = config;
+    }
+    apply_voltage_configs_();
+}
+
+void ATE::configure_dut_output_interface_pin(int pin, const DutOutputInterfaceConfig& config) {
+    configure_dut_output_interface_field(pin, 1, config);
+}
+
+void ATE::configure_dut_output_interface_field(int lsb,
+                                               int width,
+                                               const DutOutputInterfaceConfig& config) {
+    validate_field_(lsb, width, kPinOutCount, "DUT output interface field");
+    validate_dut_output_interface_config_(config);
+    for (int pin = lsb; pin < lsb + width; ++pin) {
+        dut_output_interface_configs_[static_cast<std::size_t>(pin)] = config;
+    }
+    apply_voltage_configs_();
+}
+
+void ATE::set_dut_vddq_uv(uint32_t uv) {
+    dut_vddq_uv_ = uv;
+    apply_voltage_configs_();
+}
+
+void ATE::set_analog_mode(bool enabled) {
+    analog_mode_ = enabled;
+    apply_voltage_configs_();
+}
+
+void ATE::set_dut_skew(const DutSkewConfig& config) {
+    if (config.rx_dqs > 4 || config.rx_dq > 4 || config.tx_dqs > 4 || config.tx_dq > 4) {
+        throw std::invalid_argument("DUT skew values must be in range 0..4");
+    }
+    dut_skew_ = config;
+    apply_voltage_configs_();
+}
+
+void ATE::apply_voltage_configs_() {
+    socketp_->DUT_ANALOG_ENABLE = analog_mode_ ? 1 : 0;
+    socketp_->DUT_VDDQ_UV = dut_vddq_uv_;
+    socketp_->DUT_RX_DQS_SKEW = dut_skew_.rx_dqs;
+    socketp_->DUT_RX_DQ_SKEW = dut_skew_.rx_dq;
+    socketp_->DUT_TX_DQS_SKEW = dut_skew_.tx_dqs;
+    socketp_->DUT_TX_DQ_SKEW = dut_skew_.tx_dq;
+
+    clearWideBus(socketp_->ATE_VIL_UV);
+    clearWideBus(socketp_->ATE_VIH_UV);
+    clearWideBus(socketp_->DUT_VREF_UV);
+    clearWideBus(socketp_->DUT_INPUT_RISE_STEP_UV);
+    clearWideBus(socketp_->DUT_INPUT_FALL_STEP_UV);
+    socketp_->DUT_INPUT_ENABLE = 0;
+    for (int pin = 0; pin < kPinInCount; ++pin) {
+        const auto& ate_config = ate_input_voltage_configs_[static_cast<std::size_t>(pin)];
+        const auto& dut_config = dut_input_interface_configs_[static_cast<std::size_t>(pin)];
+        setWideField(socketp_->ATE_VIL_UV, pin * 32, 32, ate_config.vil_uv);
+        setWideField(socketp_->ATE_VIH_UV, pin * 32, 32, ate_config.vih_uv);
+        setScalarBit(socketp_->DUT_INPUT_ENABLE, pin, dut_config.enabled);
+        setWideField(socketp_->DUT_VREF_UV, pin * 32, 32, dut_config.vref_uv);
+        setWideField(socketp_->DUT_INPUT_RISE_STEP_UV, pin * 32, 32, dut_config.rise_step_uv);
+        setWideField(socketp_->DUT_INPUT_FALL_STEP_UV, pin * 32, 32, dut_config.fall_step_uv);
+    }
+
+    clearWideBus(socketp_->DUT_LOW_UV);
+    clearWideBus(socketp_->DUT_HIGH_UV);
+    clearWideBus(socketp_->DUT_OUTPUT_RISE_STEP_UV);
+    clearWideBus(socketp_->DUT_OUTPUT_FALL_STEP_UV);
+    clearWideBus(socketp_->ATE_VOL_UV);
+    clearWideBus(socketp_->ATE_VOH_UV);
+    socketp_->DUT_OUTPUT_ENABLE = 0;
+    socketp_->ATE_OUTPUT_ENABLE = 0;
+    for (int pin = 0; pin < kPinOutCount; ++pin) {
+        const auto& dut_config = dut_output_interface_configs_[static_cast<std::size_t>(pin)];
+        const auto& ate_config = ate_output_voltage_configs_[static_cast<std::size_t>(pin)];
+        setScalarBit(socketp_->DUT_OUTPUT_ENABLE, pin, dut_config.enabled);
+        setWideField(socketp_->DUT_LOW_UV, pin * 32, 32, dut_config.low_uv);
+        setWideField(socketp_->DUT_HIGH_UV, pin * 32, 32, dut_config.high_uv);
+        setWideField(socketp_->DUT_OUTPUT_RISE_STEP_UV, pin * 32, 32, dut_config.rise_step_uv);
+        setWideField(socketp_->DUT_OUTPUT_FALL_STEP_UV, pin * 32, 32, dut_config.fall_step_uv);
+        setScalarBit(socketp_->ATE_OUTPUT_ENABLE, pin, analog_mode_ && ate_config.enabled);
+        setWideField(socketp_->ATE_VOL_UV, pin * 32, 32, ate_config.vol_uv);
+        setWideField(socketp_->ATE_VOH_UV, pin * 32, 32, ate_config.voh_uv);
+    }
+}
+
+uint32_t ATE::current_input_voltage_uv(int pin) const {
+    validate_pin_index_(pin, kPinInCount, "input voltage pin");
+    return getWideField(socketp_->PIN_IN_UV, pin * 32, 32);
+}
+
+uint32_t ATE::current_ate_input_voltage_uv(int pin) const {
+    validate_pin_index_(pin, kPinInCount, "ATE input voltage pin");
+    return getWideField(socketp_->ATE_PIN_IN_UV, pin * 32, 32);
+}
+
+uint32_t ATE::current_output_voltage_uv(int pin) const {
+    validate_pin_index_(pin, kPinOutCount, "output voltage pin");
+    return getWideField(socketp_->PIN_OUT_UV, pin * 32, 32);
+}
+
+std::vector<uint32_t> ATE::current_input_voltages_uv() const {
+    std::vector<uint32_t> values;
+    values.reserve(kPinInCount);
+    for (int pin = 0; pin < kPinInCount; ++pin) {
+        values.push_back(current_input_voltage_uv(pin));
+    }
+    return values;
+}
+
+std::vector<uint32_t> ATE::current_output_voltages_uv() const {
+    std::vector<uint32_t> values;
+    values.reserve(kPinOutCount);
+    for (int pin = 0; pin < kPinOutCount; ++pin) {
+        values.push_back(current_output_voltage_uv(pin));
+    }
+    return values;
 }
 
 void ATE::expect_output_field(int lsb, int width, uint32_t expected, uint32_t pin_delay) {
@@ -659,9 +872,10 @@ std::vector<uint32_t> ATE::sample_counts() const {
     return counts;
 }
 
-// Public raw view of the current output bus without creating a sample event.
+// Public raw view of the continuous ATE comparator output. This does not
+// create a sample event or append a compare record.
 uint32_t ATE::current_output_raw() const {
-    return socketp_->SAMP_OUT;
+    return socketp_->PIN_OUT_DIGITAL;
 }
 
 // Public helper for wrapper code that only wants raw sample values.
@@ -751,6 +965,7 @@ void ATE::print_sample_records() const {
                   << " expected=0x" << expected
                   << " raw=0x" << sample.raw
                   << " mask=0x" << mask
+                  << " valid=0x" << sample.valid_mask
                   << std::dec
                   << " pass=" << (sample_matches_(sample) ? 1 : 0)
                   << std::endl;
@@ -805,6 +1020,7 @@ void ATE::print(const std::string& s) const {
 void ATE::clear_driv_() {
     socketp_->DRIV = 0;
     socketp_->DRIV_IN = 0;
+    socketp_->DRIV_RETURN_IN = 0;
     clearWideBus(socketp_->DRIV_DELAY);
     clearWideBus(socketp_->DRIV_DURATION);
 }
@@ -816,15 +1032,21 @@ void ATE::clear_samp_() {
 }
 
 // Internal staging helper used by the public drive APIs after validation.
-void ATE::set_driv_pin_(int pin, bool value, uint32_t pin_delay, uint32_t hold_duration) {
+void ATE::set_driv_pin_(int pin,
+                        bool value,
+                        uint32_t pin_delay,
+                        uint32_t hold_duration) {
     uint32_t driv = socketp_->DRIV;
     uint32_t driv_in = socketp_->DRIV_IN;
+    uint32_t driv_return_in = socketp_->DRIV_RETURN_IN;
 
     setScalarBit(driv, pin, true);
     setScalarBit(driv_in, pin, value);
+    setScalarBit(driv_return_in, pin, input_pin_default_value_(pin));
 
     socketp_->DRIV = driv;
     socketp_->DRIV_IN = driv_in;
+    socketp_->DRIV_RETURN_IN = driv_return_in;
     setWideField(socketp_->DRIV_DELAY,
                  pin * kDelayWidth,
                  kDelayWidth,
@@ -916,7 +1138,7 @@ void ATE::schedule_nrz_pending_drives_() {
     uint32_t updated_mask = 0;
     if (nrz_pending_mask_ != 0U) {
         updated_mask = nrz_pending_mask_;
-        const uint32_t nrz_phase =
+        const uint64_t nrz_phase =
             phase_in_period_ <= timing_.nrz.edge
                 ? timing_.nrz.edge - phase_in_period_
                 : 0U;
@@ -989,7 +1211,10 @@ void ATE::execute_scheduled_drive_events_() {
         scheduled_drive_events_.pop_front();
 
         const uint32_t mask = 1U << event.pin;
-        set_driv_pin_(event.pin, event.value, event.pin_delay, event.hold_duration);
+        set_driv_pin_(event.pin,
+                      event.value,
+                      event.pin_delay,
+                      event.hold_duration);
         if (event.update_nrz_stable) {
             nrz_drive_mask_ |= mask;
             if (event.value) {
@@ -1067,15 +1292,30 @@ void ATE::execute_scheduled_alert_events_() {
 }
 
 uint64_t ATE::phase_with_offset_(uint64_t row_start_phase,
-                                 uint32_t waveform_phase,
-                                 int32_t base_phase,
+                                 uint64_t waveform_phase,
+                                 int64_t base_phase,
                                  const char* label) const {
-    const int64_t offset =
-        static_cast<int64_t>(waveform_phase) + static_cast<int64_t>(base_phase);
-    if (offset < 0) {
+    uint64_t offset = waveform_phase;
+    if (base_phase < 0) {
+        const uint64_t magnitude = static_cast<uint64_t>(-(base_phase + 1)) + 1U;
+        if (magnitude > offset) {
+            throw std::out_of_range(std::string("timing ") + label + " offset is before row start");
+        }
+        offset -= magnitude;
+    } else {
+        const uint64_t magnitude = static_cast<uint64_t>(base_phase);
+        if (magnitude > std::numeric_limits<uint64_t>::max() - offset) {
+            throw std::out_of_range(std::string("timing ") + label + " offset overflows");
+        }
+        offset += magnitude;
+    }
+    if (offset > std::numeric_limits<uint64_t>::max() - row_start_phase) {
+        throw std::out_of_range(std::string("timing ") + label + " phase overflows");
+    }
+    if (row_start_phase + offset < row_start_phase) {
         throw std::out_of_range(std::string("timing ") + label + " offset is before row start");
     }
-    return row_start_phase + static_cast<uint64_t>(offset);
+    return row_start_phase + offset;
 }
 
 const InputPinConfig& ATE::input_pin_config_(int lsb, int width) const {
@@ -1085,6 +1325,16 @@ const InputPinConfig& ATE::input_pin_config_(int lsb, int width) const {
         }
     }
     throw std::invalid_argument("input pin config not found");
+}
+
+bool ATE::input_pin_default_value_(int pin) const {
+    for (const auto& config : input_pin_configs_) {
+        if (pin >= config.lsb && pin < config.lsb + config.width) {
+            const int field_bit = pin - config.lsb;
+            return ((config.default_value >> field_bit) & 1U) != 0U;
+        }
+    }
+    throw std::invalid_argument("input pin default config not found");
 }
 
 const OutputPinConfig& ATE::output_pin_config_(int lsb, int width) const {
@@ -1128,6 +1378,7 @@ void ATE::capture_sample_if_ready_() {
         last_sample_.cycle = cycle_;
         last_sample_.sample_mask = socketp_->SAMP_ALERT;
         last_sample_.raw = socketp_->SAMP_OUT;
+        last_sample_.valid_mask = socketp_->SAMP_VALID;
         last_sample_.top_data_snapshot = aligned_compare_value_(captured_spec);
         last_sample_.compare_spec = captured_spec;
         captured_samples_.push_back(last_sample_);
@@ -1138,6 +1389,7 @@ void ATE::capture_sample_if_ready_() {
         last_sample_.cycle = cycle_;
         last_sample_.sample_mask = socketp_->SAMP_ALERT;
         last_sample_.raw = socketp_->SAMP_OUT;
+        last_sample_.valid_mask = socketp_->SAMP_VALID;
         last_sample_.top_data_snapshot = 0;
         last_sample_.compare_spec = CompareSpec{};
         captured_samples_.push_back(last_sample_);
@@ -1176,6 +1428,9 @@ uint32_t ATE::compare_mask_(const CompareSpec& spec) const {
 bool ATE::sample_matches_(const SampleRecord& sample) const {
     const uint32_t requested_mask = compare_mask_(sample.compare_spec);
     if ((sample.sample_mask & requested_mask) != requested_mask) {
+        return false;
+    }
+    if ((sample.valid_mask & requested_mask) != requested_mask) {
         return false;
     }
 
@@ -1231,6 +1486,7 @@ PYBIND11_MODULE(ate, m) {
         .def_readonly("cycle", &SampleRecord::cycle)
         .def_readonly("sample_mask", &SampleRecord::sample_mask)
         .def_readonly("raw", &SampleRecord::raw)
+        .def_readonly("valid_mask", &SampleRecord::valid_mask)
         .def_readonly("top_data_snapshot", &SampleRecord::top_data_snapshot)
         .def_readonly("compare_spec", &SampleRecord::compare_spec);
 
@@ -1279,6 +1535,32 @@ PYBIND11_MODULE(ate, m) {
         .def_readwrite("rz", &TimingSet::rz)
         .def_readwrite("rzz", &TimingSet::rzz)
         .def_readwrite("stb", &TimingSet::stb);
+
+    py::class_<AteInputVoltageConfig>(m, "AteInputVoltageConfig")
+        .def(py::init<>())
+        .def_readwrite("vil_uv", &AteInputVoltageConfig::vil_uv)
+        .def_readwrite("vih_uv", &AteInputVoltageConfig::vih_uv);
+
+    py::class_<AteOutputVoltageConfig>(m, "AteOutputVoltageConfig")
+        .def(py::init<>())
+        .def_readwrite("enabled", &AteOutputVoltageConfig::enabled)
+        .def_readwrite("vol_uv", &AteOutputVoltageConfig::vol_uv)
+        .def_readwrite("voh_uv", &AteOutputVoltageConfig::voh_uv);
+
+    py::class_<DutInputInterfaceConfig>(m, "DutInputInterfaceConfig")
+        .def(py::init<>())
+        .def_readwrite("enabled", &DutInputInterfaceConfig::enabled)
+        .def_readwrite("vref_uv", &DutInputInterfaceConfig::vref_uv)
+        .def_readwrite("rise_step_uv", &DutInputInterfaceConfig::rise_step_uv)
+        .def_readwrite("fall_step_uv", &DutInputInterfaceConfig::fall_step_uv);
+
+    py::class_<DutOutputInterfaceConfig>(m, "DutOutputInterfaceConfig")
+        .def(py::init<>())
+        .def_readwrite("enabled", &DutOutputInterfaceConfig::enabled)
+        .def_readwrite("low_uv", &DutOutputInterfaceConfig::low_uv)
+        .def_readwrite("high_uv", &DutOutputInterfaceConfig::high_uv)
+        .def_readwrite("rise_step_uv", &DutOutputInterfaceConfig::rise_step_uv)
+        .def_readwrite("fall_step_uv", &DutOutputInterfaceConfig::fall_step_uv);
 
     py::enum_<DriveWaveformKind>(m, "DriveWaveformKind")
         .value("NRZ", DriveWaveformKind::NRZ)
@@ -1377,6 +1659,44 @@ PYBIND11_MODULE(ate, m) {
              py::arg("lsb"),
              py::arg("width"),
              py::arg("default_value") = 0)
+        .def("configure_ate_input_voltage_pin",
+             &ATE::configure_ate_input_voltage_pin,
+             py::arg("pin"),
+             py::arg("config"))
+        .def("configure_ate_input_voltage_field",
+             &ATE::configure_ate_input_voltage_field,
+             py::arg("lsb"),
+             py::arg("width"),
+             py::arg("config"))
+        .def("configure_ate_output_voltage_pin",
+             &ATE::configure_ate_output_voltage_pin,
+             py::arg("pin"),
+             py::arg("config"))
+        .def("configure_ate_output_voltage_field",
+             &ATE::configure_ate_output_voltage_field,
+             py::arg("lsb"),
+             py::arg("width"),
+             py::arg("config"))
+        .def("set_analog_mode", &ATE::set_analog_mode, py::arg("enabled"))
+        .def("analog_mode", &ATE::analog_mode)
+        .def("configure_dut_input_interface_pin",
+             &ATE::configure_dut_input_interface_pin,
+             py::arg("pin"),
+             py::arg("config"))
+        .def("configure_dut_input_interface_field",
+             &ATE::configure_dut_input_interface_field,
+             py::arg("lsb"),
+             py::arg("width"),
+             py::arg("config"))
+        .def("configure_dut_output_interface_pin",
+             &ATE::configure_dut_output_interface_pin,
+             py::arg("pin"),
+             py::arg("config"))
+        .def("configure_dut_output_interface_field",
+             &ATE::configure_dut_output_interface_field,
+             py::arg("lsb"),
+             py::arg("width"),
+             py::arg("config"))
         .def("expect_output_field",
              &ATE::expect_output_field,
              py::arg("lsb"),
@@ -1390,6 +1710,15 @@ PYBIND11_MODULE(ate, m) {
              py::arg("width"),
              py::arg("expected"),
              py::arg("pin_delay") = 0)
+        .def("set_dut_vddq_uv", &ATE::set_dut_vddq_uv, py::arg("uv"))
+        .def("set_dut_vdd_uv", &ATE::set_dut_vdd_uv, py::arg("uv"))
+        .def("dut_vddq_uv", &ATE::dut_vddq_uv)
+        .def("dut_vdd_uv", &ATE::dut_vdd_uv)
+        .def("current_input_voltage_uv", &ATE::current_input_voltage_uv, py::arg("pin"))
+        .def("current_ate_input_voltage_uv", &ATE::current_ate_input_voltage_uv, py::arg("pin"))
+        .def("current_output_voltage_uv", &ATE::current_output_voltage_uv, py::arg("pin"))
+        .def("current_input_voltages_uv", &ATE::current_input_voltages_uv)
+        .def("current_output_voltages_uv", &ATE::current_output_voltages_uv)
         .def("top_data", &ATE::top_data)
         .def("set_top_data", &ATE::set_top_data, py::arg("data"))
         .def("clear_drive", &ATE::clear_drive)
@@ -1421,6 +1750,7 @@ PYBIND11_MODULE(ate, m) {
         .def("clear_compare_results", &ATE::clear_compare_results)
         .def("print_compare_results", &ATE::print_compare_results)
         .def("print_compare_results_and", &ATE::print_compare_results_and)
+        .def("sample_records", &ATE::captured_samples)
         .def("print_sample_records", &ATE::print_sample_records)
         .def("clock", &ATE::clock)
         .def("cycle", &ATE::cycle)

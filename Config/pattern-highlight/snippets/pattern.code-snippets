@@ -2,13 +2,16 @@
   "Pattern block": {
     "prefix": "begin",
     "body": [
-      "USE ${1:../dram}",
+      "USE ${1:chip}",
+      "VOLTAGE = ${2:VS0}",
       "",
       "BEGIN",
-      "      <${2:0}> START -> ${3:TEST} -> STOP",
+      "    <${3:0}> START",
+      "        GOTO-1 ${4:TEST} *",
+      "    STOP",
       "",
-      "            ${3:TEST}# NOP       | ${4:ADDR = 0} : ${5:CMD < ADDR} ;",
-      "                  RTN       |          :           ;",
+      "    ${4:TEST}# NOP | ${5:ADDR = 0} : ${6:CMD < ADDR} ;",
+      "             RTN |          :           ;",
       "END"
     ],
     "description": "Create a PAT pattern file skeleton."
@@ -16,10 +19,10 @@
   "Command definition": {
     "prefix": "cmd",
     "body": [
-      "CMD ${1:NAME}(${2:param}) {",
+      "${1:NAME}(${2:param}) {",
       "    DRIVE ${3:PIN} = ${2:param};",
       "}"
     ],
-    "description": "Create a DEFINE CMD block."
+    "description": "Create a COMMAND declaration."
   }
 }

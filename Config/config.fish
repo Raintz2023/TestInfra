@@ -33,14 +33,9 @@ set -gx LD_LIBRARY_PATH /usr/lib64 $LD_LIBRARY_PATH
 
 # -------- Verilog --------
 set -gx VERILOG $TI/Verilog
-set -gx VERILOG_RTL $VERILOG/rtl
 set -gx VERILOG_ATE $VERILOG/ate
 set -gx VERILOG_DUT $VERILOG/dut
 set -gx VERILOG_PIN $VERILOG/pin
-set -gx VERILOG_PINMAP $VERILOG/pinmap
-set -gx VERILOG_INC $VERILOG/include
-set -gx VERILOG_SRC $VERILOG/src
-set -gx VERILOG_SIM $VERILOG/sim
 
 # -------- C++ --------
 set -gx CPP $TI/C++
@@ -50,15 +45,24 @@ set -gx CPP_SRC $CPP/src
 set -gx CPP_SIM $CPP/sim
 set -gx CPP_BUILD $CPP/build
 set -gx CPP_WAVE $CPP/wave
+set -gx SURFER_BIN /opt/homebrew/bin/surfer
+fish_add_path --move --prepend (dirname $SURFER_BIN)
+
+function surfer --description "Open Surfer using the TestInfra pinned Homebrew build"
+    if not test -x $SURFER_BIN
+        echo "surfer: executable not found: $SURFER_BIN" >&2
+        return 1
+    end
+    command $SURFER_BIN $argv
+end
 
 # -------- Python --------
 set -gx PYTHON $TI/Python
 set -gx TI_VENV $TI/.venv
 set -gx TI_PYTHON_BIN $TI_VENV/bin/python3
 set -gx PYTHON_LIBS $PYTHON/libs
-set -gx PYTHON_PAT_PATTERN $PYTHON/pat/pattern
+set -gx PYTHON_PAT_PATTERN $PYTHON/pat/chip/pattern
 set -gx PYTHON_PAT_GEN $PYTHON/pat/generated
-set -gx PYTHON_SIM $PYTHON/sim
 set -gx PYTHON_STUBS $PYTHON/stubs
 set -gx PYTHON_WAVE $PYTHON/wave
 
@@ -80,34 +84,40 @@ function vbuild --description "Build Verilog sim with Verilator (TestInfra)"
     end
 
     # Build the Verilator sim directly from the current C++ workspace layout.
-    for v in VERILOG_ATE VERILOG_DUT VERILOG_PIN CPP CPP_INC CPP_GEN CPP_SRC CPP_SIM
+    for v in VERILOG_ATE VERILOG_DUT VERILOG_PIN CPP CPP_INC CPP_GEN CPP_SRC CPP_SIM CPP_BUILD
         if not set -q $v
             echo "vbuild: missing env var '$v' (e.g. set -x $v /path/to/...)" >&2
             return 2
         end
     end
 
-    for d in $VERILOG_ATE $VERILOG_DUT $VERILOG_PIN $CPP $CPP_INC $CPP_GEN $CPP_SRC $CPP_SIM
+    for d in $VERILOG_ATE $VERILOG_DUT $VERILOG_PIN $CPP $CPP_INC $CPP_GEN $CPP_SRC $CPP_SIM $CPP_BUILD
         if not test -d $d
             echo "vbuild: directory not found: $d" >&2
             return 2
         end
     end
 
-    set -l trace_args --trace --trace-structs
+    set -l trace_args --trace --trace-structs --trace-max-array 256 --trace-max-width 4096
     set -l cflags "-std=c++20 -I$CPP_INC -I$CPP_GEN -fPIC -O3 -DNDEBUG -DATE_ENABLE_TRACE"
+    set -l verilator_mdir "$CPP_BUILD/verilator-trace"
     if test $fast -eq 1
         set trace_args
         set cflags "-std=c++20 -I$CPP_INC -I$CPP_GEN -fPIC -O3 -DNDEBUG -DVL_DEBUG=0"
+        set verilator_mdir "$CPP_BUILD/verilator-fast"
     end
 
+    command mkdir -p $verilator_mdir
     pushd $CPP >/dev/null
 
-    command verilator -Wall --cc \
+    command verilator -Wall $build_args --cc \
+        --Mdir $verilator_mdir \
         $VERILOG_ATE/Socket.v \
         $VERILOG_ATE/DUT.v \
         $VERILOG_PIN/PinIn.v \
         $VERILOG_PIN/PinOut.v \
+        $VERILOG_PIN/AteInputDriver.v \
+        $VERILOG_PIN/AteOutputComparator.v \
         $VERILOG_PIN/PinInAdapter.v \
         $VERILOG_PIN/PinOutAdapter.v \
         $VERILOG_DUT/*.v \
@@ -118,12 +128,13 @@ function vbuild --description "Build Verilog sim with Verilator (TestInfra)"
         --exe \
         $CPP_SIM/main.cpp \
         $CPP_SRC/Ate.cpp \
+        $CPP_SRC/AteBench.cpp \
         $CPP_SRC/Timing.cpp \
         $CPP_SRC/Waveform.cpp \
-        --trace --trace-structs --trace-max-array 256 --trace-max-width 4096 \
+        $trace_args \
         --build \
         --top-module Socket \
-        -CFLAGS "-std=c++20 -I$CPP_INC -I$CPP_GEN -fPIC"
+        -CFLAGS "$cflags"
 
     set -l rc $status
     popd >/dev/null
@@ -178,6 +189,26 @@ function cbuild-fast --description "Build non-tracing pybind ATE module for fast
     cbuild --fast $argv
 end
 
+function plint --description "Lint TestInfra Python physical parameter names"
+    for v in TI TI_PYTHON_BIN PYTHON
+        if not set -q $v
+            echo "plint: missing env var '$v'" >&2
+            return 2
+        end
+    end
+
+    set -l lint_paths $argv
+    if test (count $lint_paths) -eq 0
+        set lint_paths "$PYTHON"
+    end
+
+    pushd $TI >/dev/null
+    command $TI_PYTHON_BIN -m Python.pat.lint.physical_names $lint_paths
+    set -l rc $status
+    popd >/dev/null
+    return $rc
+end
+
 function pbuild --description "Build Python sim with pattern using lark (TestInfra)"
     # ---- 必要环境变量检查（按实际使用列出来）----
     for v in TI PYTHON TI_PYTHON_BIN PYTHON_LIBS PYTHON_PAT_PATTERN PYTHON_PAT_GEN PYTHON_STUBS
@@ -190,6 +221,12 @@ function pbuild --description "Build Python sim with pattern using lark (TestInf
     if not test -x $TI_PYTHON_BIN
         echo "pbuild: python not found or not executable: $TI_PYTHON_BIN" >&2
         return 2
+    end
+
+    plint
+    or begin
+        echo "pbuild: physical quantity naming lint failed" >&2
+        return 1
     end
 
     command mkdir -p $PYTHON_PAT_GEN/run
@@ -405,22 +442,7 @@ function pingen --description "Generate schema, Verilog pin adapters, and DUT wr
     return $rc
 end
 
-alias cate="$CPP/obj_dir/VSocket"
-
-function pate
-    if not test -x $TI_PYTHON_BIN
-        echo "pate: python not found or not executable: $TI_PYTHON_BIN" >&2
-        return 2
-    end
-
-    pushd $TI >/dev/null
-    command $TI_PYTHON_BIN -m Python.sim.main $argv
-    set -l rc $status
-    popd >/dev/null
-    return $rc
-end
-
-function pwave --description "Open TestInfra VCD in GTKWave"
+function pwave --description "Open a Python TestInfra VCD in Surfer"
     if not set -q PYTHON
         echo "wave: missing env var PYTHON (e.g. set -Ux PYTHON $TI/Python)" >&2
         return 2
@@ -444,10 +466,15 @@ function pwave --description "Open TestInfra VCD in GTKWave"
         return 1
     end
 
-    command gtkwave $vcd
+    if not test -x $SURFER_BIN
+        echo "wave: Surfer not executable: $SURFER_BIN" >&2
+        return 1
+    end
+
+    command $SURFER_BIN $vcd
 end
 
-function cwave --description "Open TestInfra VCD in GTKWave"
+function cwave --description "Open a C++ TestInfra VCD in Surfer"
     if not set -q CPP
         echo "wave: missing env var CPP (e.g. set -Ux CPP $TI/C++)" >&2
         return 2
@@ -471,7 +498,12 @@ function cwave --description "Open TestInfra VCD in GTKWave"
         return 1
     end
 
-    command gtkwave $vcd
+    if not test -x $SURFER_BIN
+        echo "wave: Surfer not executable: $SURFER_BIN" >&2
+        return 1
+    end
+
+    command $SURFER_BIN $vcd
 end
 
 function venv --description "Activate local Python virtual environment in current directory"
@@ -518,15 +550,6 @@ end
 
 # OSS CAD Suite
 if test -d /Users/lichenyu/Code/Learning/oss-cad-suite/bin
-    set -gx PATH /Users/lichenyu/Code/Learning/oss-cad-suite/bin $PATH
+    fish_add_path --move --append /Users/lichenyu/Code/Learning/oss-cad-suite/bin
+    fish_add_path --move --prepend (dirname $SURFER_BIN)
 end
-
-set -x ANTHROPIC_BASE_URL https://api.deepseek.com/anthropic
-set -x ANTHROPIC_AUTH_TOKEN sk-e05e73df1dd046ba81c8ebb4b1058fd9
-set -x ANTHROPIC_MODEL deepseek-v4-pro[1m]
-set -x ANTHROPIC_DEFAULT_OPUS_MODEL deepseek-v4-pro[1m]
-set -x ANTHROPIC_DEFAULT_SONNET_MODEL deepseek-v4-pro[1m]
-set -x ANTHROPIC_DEFAULT_HAIKU_MODEL deepseek-v4-flash
-set -x CLAUDE_CODE_SUBAGENT_MODEL deepseek-v4-flash
-set -x CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 1
-set -x CLAUDE_CODE_EFFORT_LEVEL max
